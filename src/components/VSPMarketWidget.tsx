@@ -1,46 +1,23 @@
-import React, { useState } from "react";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export default function VSPMarketWidget() {
-  const [open, setOpen] = useState<null | "buy" | "sell">(null);
-  const price = 1.42; // STUB — fetched from MM later
+  const price = 1.42;
 
   return (
-    <>
-      {/* Compact header widget */}
-      <div className="vsp-mini">
-        <button className="btn btn-primary" onClick={() => setOpen("buy")}>
-          Buy
-        </button>
-        <button className="btn" onClick={() => setOpen("sell")}>
-          Sell
-        </button>
-        <span className="vsp-price">{price.toFixed(2)} VSP / USDC</span>
-      </div>
+    <div className="vsp-mini">
+      <ConnectButton
+        accountStatus="address"
+        chainStatus="name"
+        showBalance={false}
+      />
 
-      {/* Modal */}
-      {open && (
-        <div className="modal-backdrop" onClick={() => setOpen(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{open === "buy" ? "Buy VSP" : "Sell VSP"}</h3>
+      <button className="btn btn-primary">Buy</button>
+      <button className="btn">Sell</button>
 
-            <div className="modal-price">
-              Price: {price.toFixed(4)} USDC per VSP
-            </div>
-
-            <input className="input" placeholder="Wallet address" />
-            <input className="input" placeholder="Amount (VSP)" />
-
-            <button className="btn btn-primary">
-              {open === "buy" ? "Buy VSP" : "Sell VSP"}
-            </button>
-
-            <div className="muted" style={{ fontSize: 12 }}>
-              Includes protocol + market maker fees.
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+      <span className="vsp-price">
+        {price.toFixed(2)} VSP / USDC
+      </span>
+    </div>
   );
 }
 

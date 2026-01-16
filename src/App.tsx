@@ -37,10 +37,9 @@ export default function App() {
       {/* HEADER */}
       <div className="row header">
         <h2>VeriSphere</h2>
-        <VSPMarketWidget
-          onBuy={() => setTradeSide("buy")}
-          onSell={() => setTradeSide("sell")}
-        />
+
+        {/* Wallet + Buy/Sell */}
+        <VSPMarketWidget />
       </div>
 
       {/* INPUT */}
