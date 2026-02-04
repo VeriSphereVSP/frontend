@@ -1,7 +1,3 @@
-/* ================================
- * Types
- * ================================ */
-
 export type ClaimAction = {
   type: string;
   label: string;
@@ -41,19 +37,13 @@ export type InterpretResponse =
   | InterpretClaims
   | InterpretArticle;
 
-/* ================================
- * API
- * ================================ */
-
 export async function interpret(
   input: string,
   model?: string
 ): Promise<InterpretResponse> {
   const r = await fetch("/api/interpret", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input,
       ...(model ? { model } : {}),
@@ -66,13 +56,10 @@ export async function interpret(
     throw new Error(text || `Request failed (${r.status})`);
   }
 
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text) as InterpretResponse;
   } catch {
     throw new Error("Invalid JSON returned from /interpret");
   }
-
-  return parsed as InterpretResponse;
 }
 

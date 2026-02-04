@@ -1,14 +1,12 @@
 import { useMemo, useState } from "react";
 import { interpret, type InterpretResponse } from "./api";
 import VSPMarketWidget from "./components/VSPMarketWidget";
-import TradeModal from "./components/TradeModal";
 
 export default function App() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<InterpretResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tradeSide, setTradeSide] = useState<"buy" | "sell" | null>(null);
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !loading,
@@ -17,6 +15,7 @@ export default function App() {
 
   async function submit() {
     if (!canSend) return;
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -35,10 +34,14 @@ export default function App() {
   return (
     <div className="container watermark-bg">
       {/* HEADER */}
-      <div className="row header">
-        <h2>VeriSphere</h2>
-
-        {/* Wallet + Buy/Sell */}
+      <div
+        className="row header"
+        style={{
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Verisphere</h2>
         <VSPMarketWidget />
       </div>
 
@@ -53,8 +56,8 @@ export default function App() {
           onKeyDown={(e) =>
             (e.metaKey || e.ctrlKey) && e.key === "Enter" && submit()
           }
-          style={{ resize: "vertical" }}
         />
+
         <button
           className="btn btn-primary"
           disabled={!canSend}
@@ -73,17 +76,13 @@ export default function App() {
         )}
       </div>
 
-      {/* FOOTER */}
+      {/* FOOTER — PRESERVED */}
       <footer className="footer">
         <a href="/whitepaper.pdf">Whitepaper</a>
         <a href="/help">Help</a>
         <a href="/about">About</a>
-        <span>© {new Date().getFullYear()} VeriSphere</span>
+        <span>© {new Date().getFullYear()} Verisphere</span>
       </footer>
-
-      {tradeSide && (
-        <TradeModal side={tradeSide} onClose={() => setTradeSide(null)} />
-      )}
     </div>
   );
 }
