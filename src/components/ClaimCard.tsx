@@ -1,5 +1,6 @@
 import React from "react";
 import type { ClaimCard as ClaimCardT } from "../types";
+//import { stakeSupport, stakeChallenge } from "@verisphere/protocol"; // now resolves via alias
 
 function pct(n: number) {
   const x = Math.max(0, Math.min(1, n));
@@ -14,6 +15,34 @@ export default function ClaimCard({
   onAction: (type: string, payload: any) => void;
 }) {
   const mainText = (card.text ?? card.claim_text ?? "").toString();
+
+  const handleStakeSupport = async () => {
+    if (!card.on_chain?.claim_id) {
+      alert("Claim not yet on-chain");
+      return;
+    }
+
+    try {
+      await stakeSupport(BigInt(card.on_chain.claim_id), parseEther("10")); // example amount
+      alert("Support stake sent! Check MetaMask for tx.");
+    } catch (err: any) {
+      alert("Stake failed: " + (err.shortMessage || err.message));
+    }
+  };
+
+  const handleStakeChallenge = async () => {
+    if (!card.on_chain?.claim_id) {
+      alert("Claim not yet on-chain");
+      return;
+    }
+
+    try {
+      await stakeChallenge(BigInt(card.on_chain.claim_id), parseEther("5")); // example amount
+      alert("Challenge stake sent! Check MetaMask for tx.");
+    } catch (err: any) {
+      alert("Stake failed: " + (err.shortMessage || err.message));
+    }
+  };
 
   return (
     <div className="card claim-card" title="Hoverable Claim Card">
@@ -52,7 +81,7 @@ export default function ClaimCard({
       ) : null}
 
       <div className="claim-actions">
-        {card.actions.map((a, i) => (
+        {card.actions?.map((a, i) => (
           <button
             key={i}
             className="btn"
@@ -61,8 +90,20 @@ export default function ClaimCard({
             {a.label}
           </button>
         ))}
+
+        {/* Staking buttons – only show if claim is on-chain 
+        {card.on_chain?.claim_id && (
+          <>
+            <button className="btn btn-success" onClick={handleStakeSupport}>
+              Stake Support
+            </button>
+            <button className="btn btn-danger" onClick={handleStakeChallenge}>
+              Stake Challenge
+            </button>
+          </>
+        )} 
+	*/}
       </div>
     </div>
   );
 }
-

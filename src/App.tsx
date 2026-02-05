@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { interpret, type InterpretResponse } from "./api";
 import VSPMarketWidget from "./components/VSPMarketWidget";
+import ContentPanel from "./components/ContentPanel";
 
 export default function App() {
   const [input, setInput] = useState("");
@@ -71,12 +72,10 @@ export default function App() {
       <div style={{ marginTop: 12 }}>
         {loading && <div className="card muted">Thinking…</div>}
         {error && <div className="card error">{error}</div>}
-        {!loading && result && (
-          <pre className="card">{JSON.stringify(result, null, 2)}</pre>
-        )}
+        {!loading && result && <ContentPanel result={result} />}
       </div>
 
-      {/* FOOTER — PRESERVED */}
+      {/* FOOTER */}
       <footer className="footer">
         <a href="/whitepaper.pdf">Whitepaper</a>
         <a href="/help">Help</a>
@@ -86,4 +85,3 @@ export default function App() {
     </div>
   );
 }
-

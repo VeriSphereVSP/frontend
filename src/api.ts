@@ -10,6 +10,10 @@ export type ClaimCard = {
   confidence: number;
   type?: string;
   actions?: ClaimAction[];
+  on_chain?: any;
+  stake_support: number;
+  stake_challenge: number;
+  author: string;
 };
 
 export type InterpretNonActionable = {
@@ -51,7 +55,6 @@ export async function interpret(
   });
 
   const text = await r.text();
-
   if (!r.ok) {
     throw new Error(text || `Request failed (${r.status})`);
   }
@@ -59,7 +62,6 @@ export async function interpret(
   try {
     return JSON.parse(text) as InterpretResponse;
   } catch {
-    throw new Error("Invalid JSON returned from /interpret");
+    throw new Error("Invalid JSON returned from /api/interpret");
   }
 }
-

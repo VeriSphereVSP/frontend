@@ -24,4 +24,3 @@ export default function ContentPanel({ result }: { result: any | null }) {
 
   return null;
 }
-

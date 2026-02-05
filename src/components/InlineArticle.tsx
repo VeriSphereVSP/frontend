@@ -1,31 +1,15 @@
-import ClaimCard from "./ClaimCard";
+import InlineClaim from "./InlineClaim";
 
 export default function InlineArticle({ article }: { article: any }) {
   return (
     <div className="card">
-      <h2>{article.title}</h2>
+      <h3>{article.title}</h3>
 
-      {article.sections.map((s: any) => (
-        <div key={s.id} style={{ marginBottom: 16 }}>
-          <p
-            style={{
-              borderLeft: "3px solid #e5e7eb",
-              paddingLeft: 12,
-              position: "relative",
-            }}
-          >
-            {s.text}
-            <sup style={{ opacity: 0.5, marginLeft: 4 }}>◊</sup>
-          </p>
-
-          <div style={{ marginLeft: 16 }}>
-            {s.claims.map((c: any, i: number) => (
-              <ClaimCard key={i} card={c} onAction={() => {}} />
-            ))}
-          </div>
-        </div>
+      {article.sections.map((s) => (
+        <p key={s.id} className="article-paragraph">
+          <InlineClaim text={s.text} claims={s.claims} />
+        </p>
       ))}
     </div>
   );
 }
-

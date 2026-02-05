@@ -1,47 +1,42 @@
 export type ClaimAction = {
-  type:
-    | "create_claim"
-    | "stake_support"
-    | "stake_challenge"
-    | "open_details"
-    | "reply";
+  type: string;
   label: string;
   payload: Record<string, unknown>;
 };
 
 export type ClaimCard = {
   local_id?: string;
-  text?: string;
+  text: string;
   confidence: number;
   type?: string;
-
-  claim_text?: string;
-
-  claim_id?: number;
-  classification?: string;
-  max_similarity?: number;
-  cluster_id?: number;
-  canonical_claim_id?: number;
-  canonical_claim_text?: string;
-
-  is_atomic?: boolean;
-  decomposition?: string[];
-
-  actions: ClaimAction[];
+  actions?: ClaimAction[];
+  on_chain?: any; // From backend (claim_id, similarity, etc.)
+  stake_support: number;
+  stake_challenge: number;
+  author: string;
 };
 
-export type ArticleSection = {
-  id: string;
-  text: string;
+export type InterpretNonActionable = {
+  kind: "non_actionable";
+  message: string;
+};
+
+export type InterpretClaims = {
+  kind: "claims";
   claims: ClaimCard[];
 };
 
-export type IntentResult =
-  | { kind: "non_actionable"; message: string }
-  | { kind: "claims"; claims: ClaimCard[] }
-  | { kind: "article"; title: string; sections: ArticleSection[] };
-
-export type InterpretResponse = {
-  result: IntentResult;
+export type InterpretArticle = {
+  kind: "article";
+  title: string;
+  sections: {
+    id: string;
+    text: string;
+    claims: ClaimCard[];
+  }[];
 };
 
+export type InterpretResponse =
+  | InterpretNonActionable
+  | InterpretClaims
+  | InterpretArticle;
