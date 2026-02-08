@@ -143,8 +143,11 @@ body {
 -------------------------------------------------- */
 .claim-card {
   padding: 12px;
+  border: 1px solid #d1d5db;   /* stronger than card default */
+  background: white;
   transition: transform 0.08s ease, box-shadow 0.08s ease;
 }
+
 
 .claim-card:hover {
   transform: translateY(-1px);
@@ -171,7 +174,7 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0,0,0,0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -182,10 +185,7 @@ body {
   background: white;
   border-radius: 14px;
   padding: 20px;
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  width: 420px;
 }
 
 .modal-price {

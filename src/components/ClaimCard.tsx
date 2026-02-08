@@ -1,109 +1,201 @@
 import React from "react";
 import type { ClaimCard as ClaimCardT } from "../types";
-//import { stakeSupport, stakeChallenge } from "@verisphere/protocol"; // now resolves via alias
-
-function pct(n: number) {
-  const x = Math.max(0, Math.min(1, n));
-  return `${Math.round(x * 100)}%`;
-}
+import VSBar from "../ui/VSBar";
 
 export default function ClaimCard({
   card,
   onAction,
 }: {
   card: ClaimCardT;
-  onAction: (type: string, payload: any) => void;
+  onAction?: (type: string, payload: any) => void;
 }) {
+  if (!card) {
+    return (
+      <div className="card muted">
+        Invalid claim data
+      </div>
+    );
+  }
   const mainText = (card.text ?? card.claim_text ?? "").toString();
 
-  const handleStakeSupport = async () => {
-    if (!card.on_chain?.claim_id) {
-      alert("Claim not yet on-chain");
-      return;
-    }
-
-    try {
-      await stakeSupport(BigInt(card.on_chain.claim_id), parseEther("10")); // example amount
-      alert("Support stake sent! Check MetaMask for tx.");
-    } catch (err: any) {
-      alert("Stake failed: " + (err.shortMessage || err.message));
-    }
-  };
-
-  const handleStakeChallenge = async () => {
-    if (!card.on_chain?.claim_id) {
-      alert("Claim not yet on-chain");
-      return;
-    }
-
-    try {
-      await stakeChallenge(BigInt(card.on_chain.claim_id), parseEther("5")); // example amount
-      alert("Challenge stake sent! Check MetaMask for tx.");
-    } catch (err: any) {
-      alert("Stake failed: " + (err.shortMessage || err.message));
-    }
-  };
-
   return (
-    <div className="card claim-card" title="Hoverable Claim Card">
-      <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-        <span className="badge">Confidence: {pct(card.confidence)}</span>
-        {card.type ? <span className="badge">Type: {card.type}</span> : <span className="badge muted">Type: —</span>}
+    <div
+      className="card claim-card"
+      style={{
+        width: 380,
+        background: "white", // always neutral
+      }}
+    >
+      {/* ───────────────────────────────────────────── */}
+      {/* ▲ OUTGOING LINKS (this claim affects others) */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        style={{
+          textAlign: "center",
+          marginBottom: 8,
+        }}
+      >
+        <button className="btn btn-small" title="Outgoing links">
+          ▲ Outgoing links
+        </button>
       </div>
 
-      <p className="claim-text" style={{ marginTop: 10 }}>{mainText}</p>
-
-      <div className="row" style={{ flexWrap: "wrap", marginTop: 10 }}>
-        {typeof card.local_id === "string" && <span className="badge">local_id: {card.local_id}</span>}
-        {typeof card.claim_id === "number" && <span className="badge">claim_id: {card.claim_id}</span>}
-        {typeof card.cluster_id === "number" && <span className="badge">cluster: {card.cluster_id}</span>}
-        {typeof card.max_similarity === "number" && <span className="badge">max_sim: {card.max_similarity.toFixed(3)}</span>}
-        {typeof card.is_atomic === "boolean" && <span className="badge">{card.is_atomic ? "atomic" : "compound"}</span>}
-        {card.classification ? <span className="badge">Dedupe: {card.classification}</span> : null}
+      {/* ───────────────────────────────────────────── */}
+      {/* METADATA BADGES */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        className="row"
+        style={{
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          flexWrap: "wrap",
+          gap: 6,
+        }}
+      >
+        {typeof card.local_id === "string" && (
+          <span className="badge">local_id: {card.local_id}</span>
+        )}
+        {typeof card.claim_id === "number" && (
+          <span className="badge">claim_id: {card.claim_id}</span>
+        )}
+        {typeof card.cluster_id === "number" && (
+          <span className="badge">cluster: {card.cluster_id}</span>
+        )}
+        {typeof card.max_similarity === "number" && (
+          <span className="badge">
+            max_sim: {card.max_similarity.toFixed(3)}
+          </span>
+        )}
+        {typeof card.is_atomic === "boolean" && (
+          <span className="badge">
+            {card.is_atomic ? "atomic" : "compound"}
+          </span>
+        )}
+        {card.classification && (
+          <span className="badge">Dedupe: {card.classification}</span>
+        )}
       </div>
 
+      {/* ───────────────────────────────────────────── */}
+      {/* CLAIM TEXT */}
+      {/* ───────────────────────────────────────────── */}
+      <p
+        className="claim-text"
+        style={{ marginTop: 12, fontSize: 15 }}
+      >
+        {mainText}
+      </p>
+
+      {/* ───────────────────────────────────────────── */}
+      {/* eVS INDICATOR (replaces confidence entirely) */}
+      {/* ───────────────────────────────────────────── */}
+      <VSBar evs={card.evs} />
+
+      {/* ───────────────────────────────────────────── */}
+      {/* STAKE QUEUES (display only for now) */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        className="row"
+        style={{
+          marginTop: 10,
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <span className="badge">
+          Support stake: {card.stake_support ?? 0}
+        </span>
+        <span className="badge">
+          Challenge stake: {card.stake_challenge ?? 0}
+        </span>
+      </div>
+
+      {/* ───────────────────────────────────────────── */}
+      {/* DECOMPOSITION */}
+      {/* ───────────────────────────────────────────── */}
       {!card.is_atomic && card.decomposition?.length ? (
-        <div style={{ marginTop: 10 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Decomposition</div>
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            Decomposition
+          </div>
           <ol style={{ margin: 0, paddingLeft: 18 }}>
-            {card.decomposition.map((s, i) => (
-              <li key={i} style={{ fontSize: 13, marginBottom: 4 }}>{s}</li>
+            {card.decomposition.map((s: string, i: number) => (
+              <li
+                key={i}
+                style={{ fontSize: 13, marginBottom: 4 }}
+              >
+                {s}
+              </li>
             ))}
           </ol>
         </div>
       ) : null}
 
+      {/* ───────────────────────────────────────────── */}
+      {/* CANONICAL CLAIM */}
+      {/* ───────────────────────────────────────────── */}
       {card.canonical_claim_text ? (
-        <div style={{ marginTop: 10 }}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Canonical claim</div>
-          <div style={{ fontSize: 13 }}>{card.canonical_claim_text}</div>
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            Canonical claim
+          </div>
+          <div style={{ fontSize: 13 }}>
+            {card.canonical_claim_text}
+          </div>
         </div>
       ) : null}
 
-      <div className="claim-actions">
-        {card.actions?.map((a, i) => (
-          <button
-            key={i}
-            className="btn"
-            onClick={() => onAction(a.type, a.payload)}
-          >
-            {a.label}
-          </button>
-        ))}
+      {/* ───────────────────────────────────────────── */}
+      {/* ACTION BUTTONS */}
+      {/* ───────────────────────────────────────────── */}
+      {card.actions?.length ? (
+        <div
+          className="claim-actions"
+          style={{
+            marginTop: 14,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          {card.actions.map((a: any, i: number) => (
+            <button
+              key={i}
+              className="btn"
+              onClick={() => onAction?.(a.type, a.payload)}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-        {/* Staking buttons – only show if claim is on-chain 
-        {card.on_chain?.claim_id && (
-          <>
-            <button className="btn btn-success" onClick={handleStakeSupport}>
-              Stake Support
-            </button>
-            <button className="btn btn-danger" onClick={handleStakeChallenge}>
-              Stake Challenge
-            </button>
-          </>
-        )} 
-	*/}
+      {/* ───────────────────────────────────────────── */}
+      {/* CREATE ON-CHAIN */}
+      {/* ───────────────────────────────────────────── */}
+      {!card.on_chain?.claim_id && (
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: 14, width: "100%" }}
+        >
+          Create claim on-chain
+        </button>
+      )}
+
+      {/* ───────────────────────────────────────────── */}
+      {/* ▲ INCOMING LINKS (this claim is based on others) */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        style={{
+          textAlign: "center",
+          marginTop: 14,
+        }}
+      >
+        <button className="btn btn-small" title="Incoming links">
+          ▲ Incoming links
+        </button>
       </div>
     </div>
   );
 }
+

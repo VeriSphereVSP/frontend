@@ -40,3 +40,34 @@ export type InterpretResponse =
   | InterpretNonActionable
   | InterpretClaims
   | InterpretArticle;
+
+export type Claim = {
+  id?: string;
+  text: string;
+
+  evs?: number;          // effective Verity Score [-100,100]
+  on_chain?: boolean;
+
+  confidence?: number;  // existing backend field
+  actions?: any[];
+
+  stake_support?: number;
+  stake_challenge?: number;
+  total_stake?: number;
+};
+
+export type ArticleSection = {
+  id: string;
+  text: string;
+  claims: Claim[];
+};
+
+export type Article = {
+  title: string;
+  sections: ArticleSection[];
+};
+
+export type InterpretResponse =
+  | { kind: "article"; title: string; sections: ArticleSection[] }
+  | { kind: "non_actionable"; message: string };
+

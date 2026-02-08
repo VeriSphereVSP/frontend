@@ -1,26 +1,17 @@
-import InlineArticle from "./InlineArticle";
-import ClaimCard from "./ClaimCard";
+import ArticleView from "./ArticleView";
+import { InterpretResponse } from "../types";
 
-export default function ContentPanel({ result }: { result: any | null }) {
-  if (!result) return null;
-
+export default function ContentPanel({ result }: { result: InterpretResponse }) {
   if (result.kind === "non_actionable") {
     return <div className="card muted">{result.message}</div>;
   }
 
-  if (result.kind === "claims") {
-    return (
-      <div className="col">
-        {result.claims.map((c: any, i: number) => (
-          <ClaimCard key={i} card={c} onAction={() => {}} />
-        ))}
-      </div>
-    );
-  }
+  // Explicitly construct Article object
+  const article = {
+    title: result.title,
+    sections: result.sections,
+  };
 
-  if (result.kind === "article") {
-    return <InlineArticle article={result} />;
-  }
-
-  return null;
+  return <ArticleView article={article} />;
 }
+

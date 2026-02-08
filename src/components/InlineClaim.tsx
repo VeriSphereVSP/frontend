@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import type { ClaimCard } from "../types";
-import ClaimCardView from "./ClaimCard";
+import ClaimCard from "./ClaimCard";
 
 export default function InlineClaim({
   text,
@@ -29,10 +29,9 @@ export default function InlineClaim({
 
       {active && (
         <div className="inline-claim-popover">
-          <ClaimCardView card={active} onAction={() => {}} />
+          <ClaimCard card={active} onAction={() => {}} />
         </div>
       )}
     </span>
   );
 }
-
