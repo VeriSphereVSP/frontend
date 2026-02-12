@@ -1,13 +1,19 @@
 import InlineClaim from "./InlineClaim";
 
-export default function InlineArticle({ article }: { article: any }) {
+export default function InlineArticle({
+  article,
+  onPinClaim,
+}: {
+  article: any;
+  onPinClaim: (claim: any) => void;
+}) {
   return (
     <div className="card">
-      <h3>{article.title}</h3>
+      <h2>{article.title}</h2>
 
-      {article.sections.map((s) => (
-        <p key={s.id} className="article-paragraph">
-          <InlineClaim text={s.text} claims={s.claims} />
+      {article.sections.map((s: any) => (
+        <p key={s.id}>
+          <InlineClaim text={s.text} claims={s.claims} onPinClaim={onPinClaim} />
         </p>
       ))}
     </div>

@@ -1,35 +1,50 @@
 import React, { useState } from "react";
-import type { ClaimCard } from "../types";
 import ClaimCard from "./ClaimCard";
+import type { ClaimCard as ClaimCardT } from "../types";
 
 export default function InlineClaim({
   text,
   claims,
+  onPinClaim,
 }: {
   text: string;
-  claims: ClaimCard[];
+  claims: ClaimCardT[];
+  onPinClaim: (claim: ClaimCardT) => void;
 }) {
-  const [active, setActive] = useState<ClaimCard | null>(null);
+  const [hoveredClaim, setHoveredClaim] = useState<ClaimCardT | null>(null);
 
   return (
     <span
-      className="inline-claim"
-      onMouseLeave={() => setActive(null)}
+      onMouseLeave={() => setHoveredClaim(null)}
+      style={{ position: "relative", display: "inline-block" }}
     >
       {text}
-      {claims.map((c, i) => (
-        <sup
+      {claims.map((claim, i) => (
+        <span
           key={i}
-          className="claim-sup"
-          onMouseEnter={() => setActive(c)}
+          className="claim-footnote"
+          onMouseEnter={() => setHoveredClaim(claim)}
+          onClick={() => onPinClaim(claim)}
         >
-          ◦
-        </sup>
+          <span className="footnote-icon">{i + 1}</span>
+        </span>
       ))}
 
-      {active && (
-        <div className="inline-claim-popover">
-          <ClaimCard card={active} onAction={() => {}} />
+      {/* Hover popup */}
+      {hoveredClaim && (
+        <div
+          className="claim-hover-popup"
+          style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
+            top: "2.4em",
+            zIndex: 40,
+            width: "420px",
+            pointerEvents: "none",
+          }}
+        >
+          <ClaimCard card={hoveredClaim} onOpenModal={() => onPinClaim(hoveredClaim)} />
         </div>
       )}
     </span>

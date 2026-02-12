@@ -93,16 +93,13 @@ export default function TradeModal({
       setError("Wallet not ready");
       return;
     }
-
     if (amountNeeded <= 0) {
       setError("Amount too small for approval");
       return;
     }
-
     try {
       setLoading(true);
       setError(null);
-
       const approvalAmount = BigInt(amountNeeded) * 2n;
       approve({
         address: tokenToApprove,
@@ -122,25 +119,20 @@ export default function TradeModal({
       setError("Amount must be greater than 0");
       return;
     }
-
     if (needsApproval) {
       setError(`Please approve ${side === "buy" ? "USDC" : "VSP"} first`);
       return;
     }
-
     if (side === "buy" && usdcBalance * 1e6 < usdcNeeded) {
       setError("Insufficient USDC balance");
       return;
     }
-
     if (side === "sell" && vspBalance < numeric) {
       setError("Insufficient VSP balance");
       return;
     }
-
     setLoading(true);
     setError(null);
-
     try {
       const endpoint = side === "buy" ? "/api/mm/buy" : "/api/mm/sell";
       const res = await fetch(endpoint, {
@@ -152,12 +144,10 @@ export default function TradeModal({
           expected_price_usdc: price,
         }),
       });
-
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || `Failed (${res.status})`);
       }
-
       const data = await res.json();
       alert(`${side === "buy" ? "Buy" : "Sell"} successful!`);
       refetchBalances(); // Refresh main screen balances
@@ -179,8 +169,8 @@ export default function TradeModal({
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
+    <div className="trade-modal-overlay" onClick={onClose}>
+      <div className="trade-modal-content" onClick={(e) => e.stopPropagation()}>
         <h3>{side === "buy" ? "Buy VSP" : "Sell VSP"}</h3>
 
         <div style={{ marginBottom: 12 }}>
@@ -201,12 +191,13 @@ export default function TradeModal({
           min="0"
           step="0.01"
         />
+
         <button className="btn" onClick={handleMax} style={{ marginLeft: 12 }}>
           Max
         </button>
 
         <div style={{ marginTop: 8 }}>
-          You will {side === "buy" ? "receive" : "receive"}:{" "}
+          You will {side === "buy" ? "receive" : "pay"}:{" "}
           <strong>{(side === "buy" ? numeric / price : numeric * price).toFixed(4)}</strong>{" "}
           {side === "buy" ? "VSP" : "USDC"}
         </div>
@@ -227,6 +218,7 @@ export default function TradeModal({
         )}
 
         {approveSuccess && <div className="success" style={{ marginTop: 12 }}>{side === "buy" ? "USDC" : "VSP"} approved!</div>}
+
         {approveError && <div className="error" style={{ marginTop: 12 }}>
           {approveError.shortMessage || approveError.message || "Approval error"}
         </div>}
@@ -245,6 +237,8 @@ export default function TradeModal({
             {loading ? "Processing..." : "Confirm"}
           </button>
         </div>
+
+        <button className="trade-close-btn" onClick={onClose}>×</button>
       </div>
     </div>
   );

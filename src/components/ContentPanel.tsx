@@ -1,17 +1,26 @@
-import ArticleView from "./ArticleView";
-import { InterpretResponse } from "../types";
+import InlineArticle from "./InlineArticle";
 
-export default function ContentPanel({ result }: { result: InterpretResponse }) {
+export default function ContentPanel({
+  result,
+  onPinClaim,
+}: {
+  result: any | null;
+  onPinClaim: (claim: any) => void;
+}) {
+  if (!result) return null;
+
   if (result.kind === "non_actionable") {
     return <div className="card muted">{result.message}</div>;
   }
 
-  // Explicitly construct Article object
   const article = {
-    title: result.title,
-    sections: result.sections,
+    title: result.title || "Results",
+    sections: result.sections || [{
+      id: "s1",
+      text: result.claims?.map((c: any) => c.text).join('. ') || "",
+      claims: result.claims || [],
+    }],
   };
 
-  return <ArticleView article={article} />;
+  return <InlineArticle article={article} onPinClaim={onPinClaim} />;
 }
-

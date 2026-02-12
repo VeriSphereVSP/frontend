@@ -3,7 +3,6 @@ import { useAccount, useBalance, useChainId } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import TradeModal from "./TradeModal";
 import { useContracts } from "../contracts";
-import { getTokenAddresses } from "../web3/tokenAddresses";
 
 type MMQuote = {
   buy_usdc: number;
@@ -65,49 +64,34 @@ export default function VSPMarketWidget() {
     watch: true,
   });
 
-  // USDC balance + refetch (using getTokenAddresses fallback)
+  // USDC balance + refetch
   const {
     data: usdcBalanceData,
     refetch: refetchUsdc,
   } = useBalance({
     address,
-    token: getTokenAddresses().USDC,
-    enabled: Boolean(isConnected && address),
+    token: contracts?.USDC,
+    enabled: Boolean(isConnected && address && contracts?.USDC),
     watch: true,
   });
 
-  // Function to refetch both balances after successful trade
   const refetchBalances = () => {
     refetchVsp();
     refetchUsdc();
-    console.log("Balances refetched after trade");
   };
 
-  if (contractsLoading) {
-    return <div className="muted">Loading contracts…</div>;
-  }
-
-  if (contractsError) {
-    return <div className="card error">Contracts error: {contractsError.message}</div>;
-  }
-
-  if (error) {
-    return <div className="card error">Error: {error}</div>;
-  }
-
-  if (!quote) {
-    return <div className="muted">Loading VSP price…</div>;
-  }
+  if (contractsLoading) return <div className="muted">Loading contracts…</div>;
+  if (contractsError) return <div className="card error">Contracts error: {contractsError.message}</div>;
+  if (error) return <div className="card error">Error: {error}</div>;
+  if (!quote) return <div className="muted">Loading VSP price…</div>;
 
   return (
     <>
       <div className="card">
-        {/* Wallet */}
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <ConnectButton />
         </div>
 
-        {/* Balances */}
         {isConnected && (
           <div className="row" style={{ marginTop: 8, gap: 12 }}>
             <span className="badge">
@@ -119,7 +103,6 @@ export default function VSPMarketWidget() {
           </div>
         )}
 
-        {/* Actions */}
         <div className="row" style={{ marginTop: 10, gap: 12 }}>
           <button
             className="btn btn-primary"
@@ -139,15 +122,20 @@ export default function VSPMarketWidget() {
         </div>
       </div>
 
-      {/* Trade modal – now with refetchBalances prop */}
+      {/* Trade modal – centered overlay */}
       {side && address && contracts?.VSPToken && (
-        <TradeModal
-          side={side}
-          quote={quote}
-          walletAddress={address}
-          onClose={() => setSide(null)}
-          refetchBalances={refetchBalances}  // ← now properly defined & passed
-        />
+        <div className="trade-modal-overlay" onClick={() => setSide(null)}>
+          <div className="trade-modal-content" onClick={(e) => e.stopPropagation()}>
+            <TradeModal
+              side={side}
+              quote={quote}
+              walletAddress={address}
+              onClose={() => setSide(null)}
+              refetchBalances={refetchBalances}
+            />
+            <button className="trade-close-btn" onClick={() => setSide(null)}>×</button>
+          </div>
+        </div>
       )}
     </>
   );

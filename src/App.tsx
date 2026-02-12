@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import { interpret, type InterpretResponse } from "./api";
 import VSPMarketWidget from "./components/VSPMarketWidget";
 import ContentPanel from "./components/ContentPanel";
+import ClaimModal from "./components/ClaimModal"; // Add this import
 
 export default function App() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<InterpretResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pinnedClaim, setPinnedClaim] = useState<any | null>(null); // State for pinned claim
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !loading,
@@ -16,11 +18,9 @@ export default function App() {
 
   async function submit() {
     if (!canSend) return;
-
     setLoading(true);
     setError(null);
     setResult(null);
-
     try {
       const r = await interpret(input.trim());
       setResult(r);
@@ -58,7 +58,6 @@ export default function App() {
             (e.metaKey || e.ctrlKey) && e.key === "Enter" && submit()
           }
         />
-
         <button
           className="btn btn-primary"
           disabled={!canSend}
@@ -72,7 +71,7 @@ export default function App() {
       <div style={{ marginTop: 12 }}>
         {loading && <div className="card muted">Thinking…</div>}
         {error && <div className="card error">{error}</div>}
-        {!loading && result && <ContentPanel result={result} />}
+        {!loading && result && <ContentPanel result={result} onPinClaim={setPinnedClaim} />}
       </div>
 
       {/* FOOTER */}
@@ -82,6 +81,15 @@ export default function App() {
         <a href="/about">About</a>
         <span>© {new Date().getFullYear()} Verisphere</span>
       </footer>
+
+      {/* Pinned Claim Modal (portal at root level) */}
+      {pinnedClaim && (
+        <div className="pinned-overlay" onClick={() => setPinnedClaim(null)}>
+          <div className="pinned-card" onClick={(e) => e.stopPropagation()}>
+            <ClaimModal claim={pinnedClaim} onClose={() => setPinnedClaim(null)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
