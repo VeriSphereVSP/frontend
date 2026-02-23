@@ -5,18 +5,23 @@ type ClaimModalProps = {
   claim: ClaimCardT;
   onClose: () => void;
   onCreate?: (text: string) => void;
-  onStake?: (claimId: number, side: "support" | "challenge", amount: number) => void;
+  onStake?: (
+    claimId: number,
+    side: "support" | "challenge",
+    amount: number,
+  ) => void;
 };
 
-export default function ClaimModal({ claim, onClose, onCreate, onStake }: ClaimModalProps) {
+export default function ClaimModal({
+  claim,
+  onClose,
+  onCreate,
+  onStake,
+}: ClaimModalProps) {
   return (
     <div className="modal-backdrop">
       <div className="modal claim-modal">
-        <ClaimCard
-          card={claim}
-          onCreate={onCreate}
-          onStake={onStake}
-        />
+        <ClaimCard card={claim} onOpenModal={() => {}} />
         <button className="btn" onClick={onClose}>
           Close
         </button>

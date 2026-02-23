@@ -9,49 +9,42 @@ import "@rainbow-me/rainbowkit/styles.css";
 import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider, getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { avalancheFuji } from "wagmi/chains";
+import { avalancheFuji, avalanche } from "wagmi/chains";
 
-/* --------------------------------------------------
-   Chain selection
--------------------------------------------------- */
 const chainEnv = import.meta.env.VITE_CHAIN_ENV;
+const projectId =
+  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "fallback-local-id";
 
-const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "fallback-local-id";
-
+// Fix: avalanche was referenced but never imported in original
 const chains =
-  chainEnv === "mainnet" ? [avalanche] : [avalancheFuji];
+  chainEnv === "mainnet"
+    ? ([avalanche] as const)
+    : ([avalancheFuji] as const);
 
-/* --------------------------------------------------
-   Wagmi + RainbowKit config (v2-correct)
--------------------------------------------------- */
 const config = getDefaultConfig({
   appName: "Verisphere",
   projectId,
   chains,
   ssr: false,
-
-  // IMPORTANT:
-  // prevents MetaMask auto-connecting as MM wallet
-  autoConnect: false,
 });
 
-/* --------------------------------------------------
-   React Query
--------------------------------------------------- */
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 2,
+      staleTime: 30_000,
+    },
+  },
+});
 
-/* --------------------------------------------------
-   Render
--------------------------------------------------- */
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
-        <RainbowKitProvider chains={chains}>
+        <RainbowKitProvider>
           <App />
         </RainbowKitProvider>
       </WagmiProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );
-

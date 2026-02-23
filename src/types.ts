@@ -1,7 +1,24 @@
+// frontend/src/types.ts
+
 export type ClaimAction = {
   type: string;
   label: string;
   payload: Record<string, unknown>;
+};
+
+// on_chain shape returned by the backend /api/interpret
+export type OnChainState = {
+  claim_id: number;
+  eVS: number; // Effective Verity Score, -100 to +100
+  stake: {
+    support: number;
+    challenge: number;
+    total: number;
+  };
+  links: {
+    incoming: number;
+    outgoing: number;
+  };
 };
 
 export type ClaimCard = {
@@ -10,10 +27,11 @@ export type ClaimCard = {
   confidence: number;
   type?: string;
   actions?: ClaimAction[];
-  on_chain?: any; // From backend (claim_id, similarity, etc.)
+  on_chain?: OnChainState; // undefined = not yet on-chain
   stake_support: number;
   stake_challenge: number;
   author: string;
+  verity_score?: number;
 };
 
 export type InterpretNonActionable = {
@@ -44,13 +62,10 @@ export type InterpretResponse =
 export type Claim = {
   id?: string;
   text: string;
-
-  evs?: number;          // effective Verity Score [-100,100]
+  evs?: number;
   on_chain?: boolean;
-
-  confidence?: number;  // existing backend field
+  confidence?: number;
   actions?: any[];
-
   stake_support?: number;
   stake_challenge?: number;
   total_stake?: number;
@@ -66,8 +81,3 @@ export type Article = {
   title: string;
   sections: ArticleSection[];
 };
-
-export type InterpretResponse =
-  | { kind: "article"; title: string; sections: ArticleSection[] }
-  | { kind: "non_actionable"; message: string };
-

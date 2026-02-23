@@ -40,12 +40,8 @@ export default function ArticleClaim({ claim }: { claim: Claim }) {
 
       {/* Modal view */}
       {open && (
-        <ClaimModal
-          content={claim}
-          onClose={() => setOpen(false)}
-        />
+        <ClaimModal claim={claim as any} onClose={() => setOpen(false)} />
       )}
     </>
   );
 }
-

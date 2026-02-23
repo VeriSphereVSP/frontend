@@ -13,7 +13,11 @@ export default function VSPMarketWidget() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
 
-  const { data: contracts, isLoading: contractsLoading, error: contractsError } = useContracts();
+  const {
+    data: contracts,
+    isLoading: contractsLoading,
+    error: contractsError,
+  } = useContracts();
 
   const [quote, setQuote] = useState<MMQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +33,15 @@ export default function VSPMarketWidget() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        if (typeof data.buy_usdc !== "number" || typeof data.sell_usdc !== "number") {
-          throw new Error("Malformed quote");
+        if (
+          typeof data.buy_usdc !== "number" ||
+          isNaN(data.buy_usdc) ||
+          typeof data.sell_usdc !== "number" ||
+          isNaN(data.sell_usdc)
+        ) {
+          throw new Error(
+            "Malformed quote: invalid or missing buy_usdc/sell_usdc",
+          );
         }
 
         if (alive) {
@@ -42,6 +53,7 @@ export default function VSPMarketWidget() {
         }
       } catch (e: any) {
         if (alive) setError(e.message ?? "Market maker error");
+        console.error("Quote fetch failed:", e);
       }
     }
 
@@ -53,26 +65,24 @@ export default function VSPMarketWidget() {
     };
   }, []);
 
-  // VSP balance + refetch
-  const {
-    data: vspBalanceData,
-    refetch: refetchVsp,
-  } = useBalance({
+  // VSP balance
+  const { data: vspBalanceData, refetch: refetchVsp } = useBalance({
     address,
     token: contracts?.VSPToken,
-    enabled: Boolean(isConnected && address && contracts?.VSPToken),
-    watch: true,
+    query: {
+      enabled: Boolean(isConnected && address && contracts?.VSPToken),
+      refetchInterval: 5000,
+    },
   });
 
-  // USDC balance + refetch
-  const {
-    data: usdcBalanceData,
-    refetch: refetchUsdc,
-  } = useBalance({
+  // USDC balance
+  const { data: usdcBalanceData, refetch: refetchUsdc } = useBalance({
     address,
     token: contracts?.USDC,
-    enabled: Boolean(isConnected && address && contracts?.USDC),
-    watch: true,
+    query: {
+      enabled: Boolean(isConnected && address && contracts?.USDC),
+      refetchInterval: 5000,
+    },
   });
 
   const refetchBalances = () => {
@@ -80,63 +90,76 @@ export default function VSPMarketWidget() {
     refetchUsdc();
   };
 
-  if (contractsLoading) return <div className="muted">Loading contracts…</div>;
-  if (contractsError) return <div className="card error">Contracts error: {contractsError.message}</div>;
-  if (error) return <div className="card error">Error: {error}</div>;
-  if (!quote) return <div className="muted">Loading VSP price…</div>;
+  // Loading & error states
+  if (contractsLoading)
+    return <span className="muted">Loading contracts…</span>;
+  if (contractsError) return <span className="error">Contracts error</span>;
+  if (error) return <span className="error">{error}</span>;
+  if (!quote) return <span className="muted">Loading price…</span>;
 
   return (
-    <>
-      <div className="card">
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <ConnectButton />
+    <div className="vsp-widget-compact">
+      {/* Wallet connect */}
+      <ConnectButton />
+
+      {/* Balances (compact) */}
+      {isConnected && (
+        <div className="row" style={{ gap: 8 }}>
+          <span className="badge">
+            VSP:{" "}
+            {vspBalanceData
+              ? Number(vspBalanceData.formatted).toFixed(2)
+              : "0.00"}
+          </span>
+          <span className="badge">
+            USDC:{" "}
+            {usdcBalanceData
+              ? Number(usdcBalanceData.formatted).toFixed(2)
+              : "0.00"}
+          </span>
         </div>
+      )}
 
-        {isConnected && (
-          <div className="row" style={{ marginTop: 8, gap: 12 }}>
-            <span className="badge">
-              VSP: {vspBalanceData ? Number(vspBalanceData.formatted).toFixed(4) : "0.0000"}
-            </span>
-            <span className="badge">
-              USDC: {usdcBalanceData ? Number(usdcBalanceData.formatted).toFixed(2) : "0.00"}
-            </span>
-          </div>
-        )}
-
-        <div className="row" style={{ marginTop: 10, gap: 12 }}>
-          <button
-            className="btn btn-primary"
-            disabled={!isConnected || !contracts?.VSPToken}
-            onClick={() => setSide("buy")}
-          >
-            Buy @ {quote.buy_usdc.toFixed(4)} USDC
-          </button>
-
-          <button
-            className="btn"
-            disabled={!isConnected || !contracts?.VSPToken}
-            onClick={() => setSide("sell")}
-          >
-            Sell @ {quote.sell_usdc.toFixed(4)} USDC
-          </button>
-        </div>
+      {/* Buy / Sell buttons */}
+      <div className="vsp-prices">
+        <button
+          className="btn btn-primary vsp-button"
+          disabled={!isConnected || !contracts?.VSPToken}
+          onClick={() => setSide("buy")}
+        >
+          Buy @ {quote.buy_usdc.toFixed(4)}
+        </button>
+        <button
+          className="btn vsp-button"
+          disabled={!isConnected || !contracts?.VSPToken}
+          onClick={() => setSide("sell")}
+        >
+          Sell @ {quote.sell_usdc.toFixed(4)}
+        </button>
       </div>
 
-      {/* Trade modal – centered overlay */}
-      {side && address && contracts?.VSPToken && (
+      {/* Trade modal overlay */}
+      {side && address && contracts?.VSPToken && contracts?.USDC && (
         <div className="trade-modal-overlay" onClick={() => setSide(null)}>
-          <div className="trade-modal-content" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="trade-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
             <TradeModal
               side={side}
               quote={quote}
               walletAddress={address}
+              usdcAddress={contracts.USDC}
+              vspAddress={contracts.VSPToken}
               onClose={() => setSide(null)}
               refetchBalances={refetchBalances}
             />
-            <button className="trade-close-btn" onClick={() => setSide(null)}>×</button>
+            <button className="trade-close-btn" onClick={() => setSide(null)}>
+              ×
+            </button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

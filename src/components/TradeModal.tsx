@@ -1,44 +1,94 @@
+// frontend/src/components/TradeModal.tsx
 import { useState, useEffect } from "react";
-import { useAccount, useBalance, useContractRead, useContractWrite, useWaitForTransactionReceipt } from "wagmi";
-import erc20Abi from "../abi/erc20.json";
+import {
+  useAccount,
+  useBalance,
+  useReadContract,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 
-const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS as `0x${string}` | undefined;
-const VSP_ADDRESS = "0x0a631331858a547b6372720c033fbf15a17304d4" as `0x${string}`;
-const MM_ADDRESS = import.meta.env.VITE_MM_ADDRESS as `0x${string}` | undefined;
+const ERC20_ABI = [
+  {
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    name: "approve",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    name: "allowance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
 
 export default function TradeModal({
   side,
   quote,
   walletAddress,
+  usdcAddress,
+  vspAddress,
   onClose,
   refetchBalances,
 }: {
   side: "buy" | "sell";
   quote: { buy_usdc: number; sell_usdc: number };
   walletAddress: string;
+  usdcAddress: `0x${string}`;
+  vspAddress: `0x${string}`;
   onClose: () => void;
   refetchBalances: () => void;
 }) {
   const { chain, isConnected, address } = useAccount();
+  const { writeContractAsync } = useWriteContract();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | null>(
+    null,
+  );
+
+  const USDC_ADDRESS = usdcAddress;
+  const VSP_ADDRESS = vspAddress;
+  const MM_ADDRESS = import.meta.env.VITE_MM_ADDRESS as
+    | `0x${string}`
+    | undefined;
 
   const numeric = Number(amount) || 0;
   const price = side === "buy" ? quote.buy_usdc : quote.sell_usdc;
   const usdcNeeded = side === "buy" ? Math.floor(numeric * price * 1e6) : 0;
   const vspNeeded = side === "sell" ? Math.floor(numeric * 1e18) : 0;
 
-  if (!isConnected) return <div className="modal error">Wallet not connected</div>;
+  if (!isConnected)
+    return <div className="modal error">Wallet not connected</div>;
   if (!address) return <div className="modal error">No wallet address</div>;
-  if (!USDC_ADDRESS || !MM_ADDRESS) return <div className="modal error">Missing USDC/MM address in .env</div>;
+  if (!MM_ADDRESS)
+    return <div className="modal error">Missing MM_ADDRESS in .env</div>;
 
   if (chain?.id !== 43113) {
     return (
       <div className="modal error">
         <h3>Wrong Network</h3>
         <p>Please switch to Avalanche Fuji Testnet (chain ID 43113)</p>
-        <button className="btn" onClick={onClose}>Close</button>
+        <button className="btn" onClick={onClose}>
+          Close
+        </button>
       </div>
     );
   }
@@ -47,7 +97,7 @@ export default function TradeModal({
   const { data: usdcBalanceData, refetch: refetchUsdc } = useBalance({
     address,
     token: USDC_ADDRESS,
-    watch: true,
+    query: { enabled: Boolean(address && USDC_ADDRESS) },
   });
   const usdcBalance = usdcBalanceData ? Number(usdcBalanceData.formatted) : 0;
 
@@ -55,31 +105,29 @@ export default function TradeModal({
   const { data: vspBalanceData, refetch: refetchVsp } = useBalance({
     address,
     token: VSP_ADDRESS,
-    watch: true,
+    query: { enabled: Boolean(address && VSP_ADDRESS) },
   });
   const vspBalance = vspBalanceData ? Number(vspBalanceData.formatted) : 0;
 
-  // Allowance check - dynamic token
+  // Allowance check
   const tokenToApprove = side === "buy" ? USDC_ADDRESS : VSP_ADDRESS;
   const amountNeeded = side === "buy" ? usdcNeeded : vspNeeded;
 
-  const { data: allowanceData, refetch: refetchAllowance } = useContractRead({
+  const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
     address: tokenToApprove,
-    abi: erc20Abi,
+    abi: ERC20_ABI,
     functionName: "allowance",
     args: [address, MM_ADDRESS],
-    enabled: !!tokenToApprove && !!MM_ADDRESS,
-    watch: true,
+    query: { enabled: Boolean(address && MM_ADDRESS) },
   });
 
   const currentAllowance = allowanceData ? Number(allowanceData) : 0;
   const needsApproval = amountNeeded > 0 && currentAllowance < amountNeeded;
 
-  const { writeContract: approve, data: approveTx, isPending: approvePending, error: approveError } = useContractWrite();
-
-  const { isLoading: approveLoading, isSuccess: approveSuccess } = useWaitForTransactionReceipt({
-    hash: approveTx?.hash,
-  });
+  const { isLoading: approveLoading, isSuccess: approveSuccess } =
+    useWaitForTransactionReceipt({
+      hash: approveTxHash || undefined,
+    });
 
   useEffect(() => {
     if (approveSuccess) {
@@ -89,10 +137,6 @@ export default function TradeModal({
   }, [approveSuccess, refetchAllowance]);
 
   async function handleApprove() {
-    if (!approve) {
-      setError("Wallet not ready");
-      return;
-    }
     if (amountNeeded <= 0) {
       setError("Amount too small for approval");
       return;
@@ -101,12 +145,13 @@ export default function TradeModal({
       setLoading(true);
       setError(null);
       const approvalAmount = BigInt(amountNeeded) * 2n;
-      approve({
+      const hash = await writeContractAsync({
         address: tokenToApprove,
-        abi: erc20Abi,
+        abi: ERC20_ABI,
         functionName: "approve",
-        args: [MM_ADDRESS, approvalAmount],
+        args: [MM_ADDRESS!, approvalAmount],
       });
+      setApproveTxHash(hash);
     } catch (err: any) {
       setError(err.shortMessage || err.message || "Approval failed");
     } finally {
@@ -148,9 +193,11 @@ export default function TradeModal({
         const errText = await res.text();
         throw new Error(errText || `Failed (${res.status})`);
       }
-      const data = await res.json();
+      await res.json();
       alert(`${side === "buy" ? "Buy" : "Sell"} successful!`);
-      refetchBalances(); // Refresh main screen balances
+      refetchBalances();
+      refetchUsdc();
+      refetchVsp();
       onClose();
     } catch (err: any) {
       setError(err.message || "Transaction failed");
@@ -161,7 +208,7 @@ export default function TradeModal({
 
   function handleMax() {
     if (side === "buy") {
-      const maxVsp = (usdcBalance / price) || 0;
+      const maxVsp = usdcBalance / price || 0;
       setAmount(maxVsp.toFixed(4));
     } else {
       setAmount(vspBalance.toFixed(4));
@@ -197,35 +244,44 @@ export default function TradeModal({
         </button>
 
         <div style={{ marginTop: 8 }}>
-          You will {side === "buy" ? "receive" : "pay"}:{" "}
-          <strong>{(side === "buy" ? numeric / price : numeric * price).toFixed(4)}</strong>{" "}
-          {side === "buy" ? "VSP" : "USDC"}
+          You will {side === "buy" ? "pay" : "receive"}:{" "}
+          <strong>{(numeric * price).toFixed(2)}</strong> USDC
         </div>
 
-        <div style={{ marginTop: 8 }}>
-          Current {side === "buy" ? "USDC" : "VSP"} allowance: {(currentAllowance / 1e6).toFixed(2)} {side === "buy" ? "USDC" : "VSP"}
+        <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
+          Current {side === "buy" ? "USDC" : "VSP"} allowance:{" "}
+          {(currentAllowance / (side === "buy" ? 1e6 : 1e18)).toFixed(2)}
         </div>
 
         {needsApproval && (
           <button
             className="btn btn-warning"
             onClick={handleApprove}
-            disabled={approveLoading || approvePending || !approve}
+            disabled={loading || approveLoading}
             style={{ marginTop: 12, width: "100%" }}
           >
-            {approveLoading || approvePending ? "Approving..." : `Approve ${side === "buy" ? "USDC" : "VSP"}`}
+            {loading || approveLoading
+              ? "Approving..."
+              : `Approve ${side === "buy" ? "USDC" : "VSP"}`}
           </button>
         )}
 
-        {approveSuccess && <div className="success" style={{ marginTop: 12 }}>{side === "buy" ? "USDC" : "VSP"} approved!</div>}
+        {approveSuccess && (
+          <div className="success" style={{ marginTop: 12 }}>
+            {side === "buy" ? "USDC" : "VSP"} approved!
+          </div>
+        )}
 
-        {approveError && <div className="error" style={{ marginTop: 12 }}>
-          {approveError.shortMessage || approveError.message || "Approval error"}
-        </div>}
+        {error && (
+          <div className="error" style={{ marginTop: 12 }}>
+            {error}
+          </div>
+        )}
 
-        {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
-
-        <div className="row" style={{ marginTop: 20, justifyContent: "flex-end", gap: 12 }}>
+        <div
+          className="row"
+          style={{ marginTop: 20, justifyContent: "flex-end", gap: 12 }}
+        >
           <button className="btn" onClick={onClose} disabled={loading}>
             Cancel
           </button>
@@ -238,7 +294,9 @@ export default function TradeModal({
           </button>
         </div>
 
-        <button className="trade-close-btn" onClick={onClose}>×</button>
+        <button className="trade-close-btn" onClick={onClose}>
+          ×
+        </button>
       </div>
     </div>
   );

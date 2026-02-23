@@ -1,4 +1,19 @@
-import { erc20ABI, useWriteContract } from "wagmi";
+// frontend/src/wallet/erc20.ts
+import { useWriteContract } from "wagmi";
+
+// Minimal ERC-20 ABI — approve only (wagmi v2 removed built-in erc20ABI)
+const ERC20_APPROVE_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+] as const;
 
 export function useApproveERC20() {
   const { writeContractAsync } = useWriteContract();
@@ -6,11 +21,11 @@ export function useApproveERC20() {
   async function approve(
     token: `0x${string}`,
     spender: `0x${string}`,
-    amount: bigint
+    amount: bigint,
   ) {
     return writeContractAsync({
       address: token,
-      abi: erc20ABI,
+      abi: ERC20_APPROVE_ABI,
       functionName: "approve",
       args: [spender, amount],
     });
@@ -18,4 +33,3 @@ export function useApproveERC20() {
 
   return { approve };
 }
-
