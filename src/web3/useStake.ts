@@ -1,34 +1,42 @@
 // frontend/src/web3/useStake.ts
-//
-// Stake/unstake VSP via gasless meta-transactions.
-// Interface matches what ClaimCard.tsx expects:
-//   { stake, withdraw, loading, error, txHash }
-
 import { useState, useCallback } from "react";
-import { useAccount, usePublicClient } from "wagmi";
-import { encodeFunctionData, type Address } from "viem";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { encodeFunctionData, parseUnits, type Address } from "viem";
 import { useMetaTx } from "./useMetaTx";
 import {
   StakeEngineABI,
   VSPTokenABI,
   FUJI_ADDRESSES,
 } from "@verisphere/protocol";
+import type { ClaimState } from "./useCreateClaim";
 
-const VSP_DECIMALS = BigInt(10) ** BigInt(18);
-const MAX_APPROVAL = BigInt("1000000000000000000000");
+const MAX_APPROVAL = BigInt("1000000000000000000000"); // 1000 VSP
+
+function errorToString(err: any): string {
+  if (typeof err === "string") return err;
+  if (err?.shortMessage) return err.shortMessage;
+  if (err?.message) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
+  }
+}
 
 export function useStake() {
   const { address: userAddress } = useAccount();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   const { sendMetaTx } = useMetaTx();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [claimState, setClaimState] = useState<ClaimState | null>(null);
 
   const ensureAllowance = useCallback(
     async (amountWei: bigint) => {
-      if (!userAddress || !publicClient) return;
+      if (!userAddress || !publicClient || !walletClient) return;
       const currentAllowance = await publicClient.readContract({
         address: FUJI_ADDRESSES.VSPToken as Address,
         abi: VSPTokenABI,
@@ -36,18 +44,16 @@ export function useStake() {
         args: [userAddress, FUJI_ADDRESSES.StakeEngine as Address],
       });
       if ((currentAllowance as bigint) < amountWei) {
-        const approveData = encodeFunctionData({
+        const hash = await walletClient.writeContract({
+          address: FUJI_ADDRESSES.VSPToken as Address,
           abi: VSPTokenABI,
           functionName: "approve",
           args: [FUJI_ADDRESSES.StakeEngine as Address, MAX_APPROVAL],
         });
-        await sendMetaTx(FUJI_ADDRESSES.VSPToken as Address, approveData, {
-          gasLimit: 100_000,
-        });
-        await new Promise((r) => setTimeout(r, 3000));
+        await publicClient.waitForTransactionReceipt({ hash });
       }
     },
-    [userAddress, publicClient, sendMetaTx],
+    [userAddress, publicClient, walletClient],
   );
 
   const stake = useCallback(
@@ -55,7 +61,7 @@ export function useStake() {
       postId: number,
       side: "support" | "challenge",
       amount: number,
-    ): Promise<string | null> => {
+    ): Promise<ClaimState | null> => {
       if (!userAddress) {
         setError("Wallet not connected");
         return null;
@@ -63,23 +69,36 @@ export function useStake() {
       setLoading(true);
       setError(null);
       setTxHash(null);
+      setClaimState(null);
       try {
-        const amountWei = BigInt(amount) * VSP_DECIMALS;
+        const amountWei = parseUnits(amount.toString(), 18);
+        if (amountWei <= 0n) {
+          setError("Amount must be greater than 0");
+          return null;
+        }
+
         await ensureAllowance(amountWei);
+
         const calldata = encodeFunctionData({
           abi: StakeEngineABI,
           functionName: "stake",
           args: [BigInt(postId), side === "support" ? 0 : 1, amountWei],
         });
-        const hash = await sendMetaTx(
+
+        const result = await sendMetaTx(
           FUJI_ADDRESSES.StakeEngine as Address,
           calldata,
           { gasLimit: 400_000 },
         );
-        setTxHash(hash);
-        return hash;
+
+        setTxHash(result.tx_hash);
+        if (result.claim) {
+          setClaimState(result.claim);
+          return result.claim;
+        }
+        return null;
       } catch (err: any) {
-        setError(err?.message || "Stake failed");
+        setError(errorToString(err));
         console.error("stake error:", err);
         return null;
       } finally {
@@ -95,7 +114,7 @@ export function useStake() {
       side: "support" | "challenge",
       amount: number,
       lifo = true,
-    ): Promise<string | null> => {
+    ): Promise<ClaimState | null> => {
       if (!userAddress) {
         setError("Wallet not connected");
         return null;
@@ -103,22 +122,34 @@ export function useStake() {
       setLoading(true);
       setError(null);
       setTxHash(null);
+      setClaimState(null);
       try {
-        const amountWei = BigInt(amount) * VSP_DECIMALS;
+        const amountWei = parseUnits(amount.toString(), 18);
+        if (amountWei <= 0n) {
+          setError("Amount must be greater than 0");
+          return null;
+        }
+
         const calldata = encodeFunctionData({
           abi: StakeEngineABI,
           functionName: "withdraw",
           args: [BigInt(postId), side === "support" ? 0 : 1, amountWei, lifo],
         });
-        const hash = await sendMetaTx(
+
+        const result = await sendMetaTx(
           FUJI_ADDRESSES.StakeEngine as Address,
           calldata,
           { gasLimit: 300_000 },
         );
-        setTxHash(hash);
-        return hash;
+
+        setTxHash(result.tx_hash);
+        if (result.claim) {
+          setClaimState(result.claim);
+          return result.claim;
+        }
+        return null;
       } catch (err: any) {
-        setError(err?.message || "Unstake failed");
+        setError(errorToString(err));
         console.error("withdraw error:", err);
         return null;
       } finally {
@@ -128,5 +159,5 @@ export function useStake() {
     [userAddress, sendMetaTx],
   );
 
-  return { stake, withdraw, loading, error, txHash };
+  return { stake, withdraw, loading, error, txHash, claimState };
 }

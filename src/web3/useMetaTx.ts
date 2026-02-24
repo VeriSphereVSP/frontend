@@ -6,7 +6,6 @@ import { FUJI_ADDRESSES } from "@verisphere/protocol";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
-// EIP-712 domain — name MUST match the constructor string in VerisphereForwarder.sol
 const FORWARDER_DOMAIN = {
   name: "VerisphereForwarder",
   version: "1",
@@ -32,20 +31,47 @@ async function fetchNonce(address: string): Promise<number> {
   return (await res.json()).nonce;
 }
 
+function extractErrorMessage(err: any): string {
+  if (typeof err === "string") return err;
+  if (Array.isArray(err))
+    return err.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
+  if (err?.detail) return extractErrorMessage(err.detail);
+  if (err?.message) return String(err.message);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
+  }
+}
+
+export interface RelayResponse {
+  ok: boolean;
+  tx_hash: string;
+  claim?: {
+    post_id: number;
+    text: string;
+    creator: string;
+    support_total: number;
+    challenge_total: number;
+    user_support?: number;
+    user_challenge?: number;
+  };
+}
+
 async function submitRelay(
   request: Record<string, unknown>,
   signature: string,
-): Promise<string> {
+): Promise<RelayResponse> {
   const res = await fetch(`${API_BASE}/relay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ request, signature }),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Relay failed");
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(extractErrorMessage(body));
   }
-  return (await res.json()).tx_hash;
+  return await res.json();
 }
 
 export function useMetaTx() {
@@ -56,7 +82,7 @@ export function useMetaTx() {
       targetContract: Address,
       calldata: Hex,
       options?: { gasLimit?: number; value?: number },
-    ): Promise<string> => {
+    ): Promise<RelayResponse> => {
       if (!walletClient) throw new Error("Wallet not connected");
 
       const userAddress = walletClient.account.address;

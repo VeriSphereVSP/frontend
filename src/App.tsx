@@ -13,7 +13,7 @@ export default function App() {
 
   const canSend = useMemo(
     () => input.trim().length > 0 && !loading,
-    [input, loading]
+    [input, loading],
   );
 
   async function submit() {
@@ -24,7 +24,7 @@ export default function App() {
     try {
       const r = await interpret(input.trim());
       setResult(r);
-      setInput("");
+      // Don't clear input — user may want to reference or edit it
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -70,7 +70,9 @@ export default function App() {
           <div style={{ marginTop: 16 }}>
             {loading && <div className="card muted">Thinking…</div>}
             {error && <div className="card error">{error}</div>}
-            {!loading && result && <ContentPanel result={result} onPinClaim={setPinnedClaim} />}
+            {!loading && result && (
+              <ContentPanel result={result} onPinClaim={setPinnedClaim} />
+            )}
           </div>
         </div>
       </main>
@@ -87,7 +89,10 @@ export default function App() {
       {pinnedClaim && (
         <div className="pinned-overlay" onClick={() => setPinnedClaim(null)}>
           <div className="pinned-card" onClick={(e) => e.stopPropagation()}>
-            <ClaimModal claim={pinnedClaim} onClose={() => setPinnedClaim(null)} />
+            <ClaimModal
+              claim={pinnedClaim}
+              onClose={() => setPinnedClaim(null)}
+            />
           </div>
         </div>
       )}

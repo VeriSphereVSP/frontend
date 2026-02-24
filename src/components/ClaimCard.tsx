@@ -2,11 +2,13 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ClaimCard as ClaimCardT } from "../types";
 import { useAccount } from "wagmi";
-import { useCreateClaim } from "../web3/useCreateClaim";
+import { useCreateClaim, type ClaimState } from "../web3/useCreateClaim";
 import { useStake } from "../web3/useStake";
-import StakeModal from "./StakeModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+
+// Module-level set: tracks claims created this session (survives remount)
+const createdClaimsThisSession = new Set<string>();
 
 function getBackgroundColor(vs: number): string {
   if (vs > 0) return `rgba(0, 200, 80, ${Math.min(0.35, (vs / 100) * 0.35)})`;
@@ -22,7 +24,7 @@ export default function ClaimCard({
   card: ClaimCardT;
   onOpenModal?: () => void;
 }) {
-  const { isConnected } = useAccount();
+  const { isConnected, address: userAddress } = useAccount();
 
   const {
     createClaim,
@@ -35,94 +37,149 @@ export default function ClaimCard({
 
   const {
     stake,
+    withdraw,
     loading: stakeLoading,
     error: stakeError,
     txHash: stakeTxHash,
   } = useStake();
 
-  const [showStakeModal, setShowStakeModal] = useState<
-    "support" | "challenge" | null
-  >(null);
+  // Authoritative chain state — updated from relay responses AND from fetch
+  const [chainState, setChainState] = useState<ClaimState | null>(null);
+  const [verityScore, setVerityScore] = useState<number>(
+    card.verity_score ?? 0,
+  );
+  const [fetchedOnMount, setFetchedOnMount] = useState(false);
+  const [justCreated, setJustCreated] = useState(
+    createdClaimsThisSession.has(card.text),
+  );
 
-  // ---- On-chain status tracking ----
-  // Start from the card prop's on_chain data
-  const [onChainData, setOnChainData] = useState(card.on_chain);
-  const [justCreated, setJustCreated] = useState(false);
+  // Staking UI state
+  const [stakeAmount, setStakeAmount] = useState("1");
+  const [stakeSide, setStakeSide] = useState<"support" | "challenge">(
+    "support",
+  );
 
-  // Sync from prop when it changes (e.g. parent re-fetches)
-  useEffect(() => {
-    if (card.on_chain) {
-      setOnChainData(card.on_chain);
-    }
-  }, [card.on_chain]);
+  // Fetch full claim state from backend on mount
+  const fetchClaimState = useCallback(async () => {
+    try {
+      const url = `${API_BASE}/claim-status/${encodeURIComponent(card.text)}${
+        userAddress ? `?user=${userAddress}` : ""
+      }`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
 
-  // After a successful create, poll the backend until claim appears on-chain
-  const pollClaimStatus = useCallback(async () => {
-    if (!card.text) return;
-
-    const maxAttempts = 10;
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      try {
-        const res = await fetch(
-          `${API_BASE}/claim-status/${encodeURIComponent(card.text)}`,
-        );
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (data.on_chain && data.on_chain.post_id != null) {
-          // Claim is now on-chain — update local state
-          setOnChainData({
-            ...data.on_chain,
-            claim_id: data.on_chain.post_id,
-            stake: data.on_chain.stake || { support: 0, challenge: 0 },
-            eVS: data.on_chain.eVS ?? 0,
-            links: data.on_chain.links || { outgoing: 0, incoming: 0 },
-          });
-          return;
-        }
-      } catch {
-        // ignore, try again
+      if (data.on_chain?.post_id != null) {
+        setChainState({
+          post_id: data.on_chain.post_id,
+          text: card.text,
+          creator: data.on_chain.creator || "",
+          support_total: data.stake_support ?? 0,
+          challenge_total: data.stake_challenge ?? 0,
+          user_support: data.user_support ?? 0,
+          user_challenge: data.user_challenge ?? 0,
+        });
+        createdClaimsThisSession.add(card.text);
       }
+      if (data.verity_score != null) {
+        setVerityScore(data.verity_score);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch claim state:", e);
+    } finally {
+      setFetchedOnMount(true);
     }
-  }, [card.text]);
+  }, [card.text, userAddress]);
 
-  // When createTxHash arrives, start polling
   useEffect(() => {
-    if (createTxHash && !justCreated) {
-      setJustCreated(true);
-      pollClaimStatus();
-    }
-  }, [createTxHash, justCreated, pollClaimStatus]);
+    fetchClaimState();
+  }, [fetchClaimState]);
 
-  // ---- Derived state ----
-  // A claim is "on-chain" if we have a claim_id (either from prop or from polling)
-  const claimId = onChainData?.claim_id ?? onChainData?.post_id ?? null;
-  const isOnChain = claimId != null;
+  // Derive display state
+  const claimIsOnChain = chainState != null && chainState.post_id != null;
+  const postId = chainState?.post_id ?? null;
 
-  const vs = onChainData?.eVS ?? card.verity_score ?? 0;
-  const support = onChainData?.stake?.support ?? card.stake_support ?? 0;
-  const challenge = onChainData?.stake?.challenge ?? card.stake_challenge ?? 0;
+  // Treat dust amounts (< 0.001 VSP) as zero for display
+  const DUST = 0.001;
+  const support =
+    (chainState?.support_total ?? 0) < DUST
+      ? 0
+      : (chainState?.support_total ?? 0);
+  const challenge =
+    (chainState?.challenge_total ?? 0) < DUST
+      ? 0
+      : (chainState?.challenge_total ?? 0);
+  const userSupport =
+    (chainState?.user_support ?? 0) < DUST
+      ? 0
+      : (chainState?.user_support ?? 0);
+  const userChallenge =
+    (chainState?.user_challenge ?? 0) < DUST
+      ? 0
+      : (chainState?.user_challenge ?? 0);
   const totalStake = support + challenge;
   const supportPct = totalStake > 0 ? (support / totalStake) * 100 : 0;
   const challengePct = totalStake > 0 ? (challenge / totalStake) * 100 : 0;
-  const outgoingLinks = onChainData?.links?.outgoing ?? 0;
-  const incomingLinks = onChainData?.links?.incoming ?? 0;
+  const vs = verityScore;
 
-  const handleStake = async (amount: number) => {
-    if (!showStakeModal || claimId == null) return;
-    await stake(claimId, showStakeModal, amount);
-    setShowStakeModal(null);
+  // Show Create button only if:
+  // - fetched from backend (to avoid flash)
+  // - not on chain
+  // - not just created in this session
+  // - not currently in the process of creating
+  const showCreateButton =
+    fetchedOnMount && !claimIsOnChain && !justCreated && !createLoading;
+  const showConfirming = justCreated && !claimIsOnChain;
+  const canStake = claimIsOnChain && isConnected && postId != null;
+
+  // Handlers
+  const handleCreate = async () => {
+    // Immediately mark as created to prevent double-click and hide Create button
+    setJustCreated(true);
+    createdClaimsThisSession.add(card.text);
+
+    const result = await createClaim(card.text);
+    if (result) {
+      // Relay returned full state — use it directly
+      setChainState(result);
+      fetchClaimState();
+    } else {
+      // Create failed — undo the optimistic mark
+      setJustCreated(false);
+      createdClaimsThisSession.delete(card.text);
+    }
   };
+
+  const handleStake = async () => {
+    if (postId == null) return;
+    const amt = parseFloat(stakeAmount);
+    if (isNaN(amt) || amt <= 0) return;
+    const result = await stake(postId, stakeSide, amt);
+    if (result) {
+      setChainState(result);
+      // Re-fetch to get updated verity score
+      fetchClaimState();
+    }
+  };
+
+  const handleUnstake = async () => {
+    if (postId == null) return;
+    const amt = parseFloat(stakeAmount);
+    if (isNaN(amt) || amt <= 0) return;
+    const result = await withdraw(postId, stakeSide, amt);
+    if (result) {
+      setChainState(result);
+      fetchClaimState();
+    }
+  };
+
+  const myStakeOnSide = stakeSide === "support" ? userSupport : userChallenge;
 
   return (
     <div className="card claim-card">
       <div style={{ textAlign: "center", marginBottom: 12 }}>
-        <button
-          className="btn btn-small"
-          title="Links from this claim"
-          disabled={!isOnChain}
-        >
-          ↑ {outgoingLinks} outbound
+        <button className="btn btn-small" disabled={!claimIsOnChain}>
+          ↑ 0 outbound
         </button>
       </div>
 
@@ -137,44 +194,69 @@ export default function ClaimCard({
         {card.text}
       </p>
 
+      {/* Stake gauges */}
       <div className="queues">
         <div
-          className={`gauge-container${!isOnChain ? " disabled-gauge" : ""}`}
-          onClick={() =>
-            isOnChain && isConnected && setShowStakeModal("support")
-          }
-          title={
-            isOnChain ? "Click to stake support" : "Claim not yet on-chain"
-          }
+          className={`gauge-container${
+            !claimIsOnChain
+              ? " disabled-gauge"
+              : stakeSide === "support"
+                ? " selected-gauge"
+                : ""
+          }`}
+          onClick={() => canStake && setStakeSide("support")}
+          style={{ cursor: canStake ? "pointer" : "default" }}
         >
-          <div
-            className="gauge-fill green"
-            style={{ height: `${supportPct}%` }}
-          />
+          {supportPct > 0 && (
+            <div
+              className="gauge-fill green"
+              style={{ height: `${supportPct}%` }}
+            />
+          )}
           <div className="gauge-label">
             Support
             <br />
-            <strong>{support.toFixed(0)}</strong>
+            <strong>{support.toFixed(1)}</strong>
+            {userSupport > 0 && (
+              <>
+                <br />
+                <span style={{ fontSize: 11, color: "#00aa44" }}>
+                  You: {userSupport.toFixed(2)}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
         <div
-          className={`gauge-container${!isOnChain ? " disabled-gauge" : ""}`}
-          onClick={() =>
-            isOnChain && isConnected && setShowStakeModal("challenge")
-          }
-          title={
-            isOnChain ? "Click to stake challenge" : "Claim not yet on-chain"
-          }
+          className={`gauge-container${
+            !claimIsOnChain
+              ? " disabled-gauge"
+              : stakeSide === "challenge"
+                ? " selected-gauge"
+                : ""
+          }`}
+          onClick={() => canStake && setStakeSide("challenge")}
+          style={{ cursor: canStake ? "pointer" : "default" }}
         >
-          <div
-            className="gauge-fill red"
-            style={{ height: `${challengePct}%` }}
-          />
+          {challengePct > 0 && (
+            <div
+              className="gauge-fill red"
+              style={{ height: `${challengePct}%` }}
+            />
+          )}
           <div className="gauge-label">
             Challenge
             <br />
-            <strong>{challenge.toFixed(0)}</strong>
+            <strong>{challenge.toFixed(1)}</strong>
+            {userChallenge > 0 && (
+              <>
+                <br />
+                <span style={{ fontSize: 11, color: "#cc2222" }}>
+                  You: {userChallenge.toFixed(2)}
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -183,7 +265,9 @@ export default function ClaimCard({
         <span className="badge">
           Verity Score:{" "}
           <strong
-            style={{ color: vs > 0 ? "#00aa44" : vs < 0 ? "#cc2222" : "#888" }}
+            style={{
+              color: vs > 0 ? "#00aa44" : vs < 0 ? "#cc2222" : "#888",
+            }}
           >
             {vs > 0 ? "+" : ""}
             {vs.toFixed(1)}
@@ -195,7 +279,7 @@ export default function ClaimCard({
         <div
           style={{
             textAlign: "center",
-            marginBottom: 20,
+            marginBottom: 12,
             fontSize: 13,
             color: "#666",
           }}
@@ -204,10 +288,10 @@ export default function ClaimCard({
         </div>
       )}
 
+      {/* ---- Actions ---- */}
       <div className="actions">
-        {/* Show Create button ONLY when claim is NOT on-chain */}
-        {!isOnChain &&
-          !justCreated &&
+        {/* CREATE SECTION */}
+        {showCreateButton &&
           (isConnected ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {needsApproval && (
@@ -221,7 +305,7 @@ export default function ClaimCard({
               )}
               <button
                 className="btn btn-primary"
-                onClick={() => createClaim(card.text)}
+                onClick={handleCreate}
                 disabled={createLoading || needsApproval}
               >
                 {createLoading ? "Creating…" : "Create On-Chain"}
@@ -233,45 +317,127 @@ export default function ClaimCard({
             </div>
           ))}
 
-        {/* Show "confirming" state after create tx sent but before on-chain confirmed */}
-        {justCreated && !isOnChain && (
+        {/* CONFIRMING (only while waiting for relay response) */}
+        {showConfirming && !createError && (
           <div style={{ textAlign: "center", fontSize: 13, color: "#888" }}>
-            Confirming on-chain…
+            {createLoading ? "Creating on-chain…" : "✓ Created — confirming…"}
           </div>
         )}
 
-        {/* Show stake instructions when claim IS on-chain */}
-        {isOnChain && !isConnected && (
+        {/* INLINE STAKING SECTION */}
+        {canStake && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: 12,
+              border: "1px solid #e0e0e0",
+              borderRadius: 8,
+              backgroundColor: "#fafafa",
+            }}
+          >
+            <div
+              style={{
+                textAlign: "center",
+                fontSize: 13,
+                fontWeight: 600,
+                marginBottom: 8,
+              }}
+            >
+              {stakeSide === "support" ? "Support" : "Challenge"} this claim
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <input
+                type="number"
+                min="0.01"
+                step="0.1"
+                value={stakeAmount}
+                onChange={(e) => setStakeAmount(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: "6px 10px",
+                  border: "1px solid #ccc",
+                  borderRadius: 6,
+                  fontSize: 14,
+                }}
+                placeholder="VSP amount"
+              />
+              <span style={{ fontSize: 13, color: "#666" }}>VSP</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleStake}
+                disabled={stakeLoading}
+                style={{ flex: "0 1 160px" }}
+              >
+                {stakeLoading ? "Staking…" : `Stake ${stakeSide}`}
+              </button>
+
+              <button
+                className="btn"
+                onClick={handleUnstake}
+                disabled={stakeLoading || myStakeOnSide <= 0}
+                style={{
+                  flex: "0 1 160px",
+                  backgroundColor: myStakeOnSide > 0 ? "#fee" : "#f5f5f5",
+                  color: myStakeOnSide > 0 ? "#c00" : "#999",
+                  border: `1px solid ${myStakeOnSide > 0 ? "#fcc" : "#ddd"}`,
+                }}
+              >
+                {stakeLoading ? "Unstaking…" : "Unstake"}
+              </button>
+            </div>
+
+            {myStakeOnSide > 0 && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#666",
+                  textAlign: "center",
+                  marginTop: 6,
+                }}
+              >
+                Your {stakeSide} stake: {myStakeOnSide.toFixed(2)} VSP
+              </div>
+            )}
+          </div>
+        )}
+
+        {claimIsOnChain && !isConnected && (
           <div className="connect-warning">
             Connect a wallet to stake on this claim.
           </div>
         )}
 
-        {isOnChain && isConnected && (
-          <div style={{ textAlign: "center", fontSize: 13, color: "#555" }}>
-            Click a queue above to stake
-          </div>
-        )}
-
-        <div style={{ textAlign: "center" }}>
-          <button
-            className="btn btn-small"
-            title="Links to this claim"
-            disabled={!isOnChain}
-          >
-            ↑ {incomingLinks} inbound
+        <div style={{ textAlign: "center", marginTop: 8 }}>
+          <button className="btn btn-small" disabled={!claimIsOnChain}>
+            ↑ 0 inbound
           </button>
         </div>
       </div>
 
+      {/* Status messages */}
       {createError && (
         <div className="error" style={{ marginTop: 12 }}>
-          {createError}
+          {typeof createError === "string"
+            ? createError
+            : JSON.stringify(createError)}
         </div>
       )}
       {stakeError && (
         <div className="error" style={{ marginTop: 12 }}>
-          {stakeError}
+          {typeof stakeError === "string"
+            ? stakeError
+            : JSON.stringify(stakeError)}
         </div>
       )}
       {createTxHash && (
@@ -281,17 +447,8 @@ export default function ClaimCard({
       )}
       {stakeTxHash && (
         <div className="success" style={{ marginTop: 12 }}>
-          ✓ Stake submitted! Tx: {stakeTxHash.slice(0, 12)}…
+          ✓ Stake updated! Tx: {stakeTxHash.slice(0, 12)}…
         </div>
-      )}
-
-      {showStakeModal && isOnChain && claimId != null && (
-        <StakeModal
-          claimId={claimId}
-          side={showStakeModal}
-          onClose={() => setShowStakeModal(null)}
-          onStake={handleStake}
-        />
       )}
     </div>
   );
