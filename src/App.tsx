@@ -24,7 +24,6 @@ export default function App() {
     try {
       const r = await interpret(input.trim());
       setResult(r);
-      // Don't clear input — user may want to reference or edit it
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -33,19 +32,23 @@ export default function App() {
   }
 
   return (
-    <div className="app-wrapper">
+    <div
+      className="app-wrapper"
+      style={{ display: "flex", flexDirection: "column", height: "100vh" }}
+    >
       {/* Fixed top bar */}
-      <header className="top-bar">
+      <header className="top-bar" style={{ flexShrink: 0 }}>
         <div className="top-bar-container">
           <h2 className="logo">Verisphere</h2>
           <VSPMarketWidget />
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="main-content watermark-bg">
+      {/* Fixed prompt + title area */}
+      <div
+        style={{ flexShrink: 0, padding: "16px 0 0", background: "#f8f9fa" }}
+      >
         <div className="container">
-          {/* Input */}
           <div className="card input-card">
             <textarea
               className="input"
@@ -65,20 +68,35 @@ export default function App() {
               Submit
             </button>
           </div>
+          {/* Topic title — fixed, doesn't scroll */}
+          {!loading && result?.title && (
+            <h2 style={{ margin: "12px 0 0", fontSize: 22, fontWeight: 700 }}>
+              {result.title}
+            </h2>
+          )}
+        </div>
+      </div>
 
-          {/* Result */}
-          <div style={{ marginTop: 16 }}>
-            {loading && <div className="card muted">Thinking…</div>}
-            {error && <div className="card error">{error}</div>}
-            {!loading && result && (
-              <ContentPanel result={result} onPinClaim={setPinnedClaim} />
-            )}
-          </div>
+      {/* Scrollable results area */}
+      <main
+        className="watermark-bg"
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "16px 0",
+        }}
+      >
+        <div className="container">
+          {loading && <div className="card muted">Thinking…</div>}
+          {error && <div className="card error">{error}</div>}
+          {!loading && result && (
+            <ContentPanel result={result} onPinClaim={setPinnedClaim} />
+          )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="footer">
+      <footer className="footer" style={{ flexShrink: 0 }}>
         <a href="/whitepaper.pdf">Whitepaper</a>
         <a href="/help">Help</a>
         <a href="/about">About</a>

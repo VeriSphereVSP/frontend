@@ -1,13 +1,59 @@
-import { useEffect, useState } from "react";
+// frontend/src/components/VSPMarketWidget.tsx
+import { useEffect, useState, useRef } from "react";
 import { useAccount, useBalance, useChainId } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import TradeModal from "./TradeModal";
 import { useContracts } from "../contracts";
 
 type MMQuote = {
-  buy_usdc: number;
-  sell_usdc: number;
+  mid_price_usd: number;
+  buy_price_usd: number;
+  sell_price_usd: number;
+  floor_price_usd: number;
 };
+
+function FloorBadge({ floor }: { floor: number }) {
+  const [showTip, setShowTip] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close tooltip on outside click (mobile-friendly)
+  useEffect(() => {
+    if (!showTip) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setShowTip(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showTip]);
+
+  const label = floor > 0 ? `$${floor.toFixed(4)}` : "N/A";
+
+  return (
+    <div className="floor-badge" ref={ref}>
+      <span className="floor-badge-label">Floor {label}</span>
+      <span
+        className="floor-badge-icon"
+        onClick={() => setShowTip((v) => !v)}
+        onMouseEnter={() => setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+        role="button"
+        aria-label="What is the liquidation floor?"
+        tabIndex={0}
+      >
+        &#9432;
+      </span>
+      {showTip && (
+        <div className="floor-tooltip">
+          The liquidation floor is the minimum guaranteed sell price for VSP,
+          equal to total USDC reserves divided by circulating supply. It updates
+          in real time as trades occur.
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function VSPMarketWidget() {
   const { address, isConnected } = useAccount();
@@ -34,20 +80,22 @@ export default function VSPMarketWidget() {
         const data = await res.json();
 
         if (
-          typeof data.buy_usdc !== "number" ||
-          isNaN(data.buy_usdc) ||
-          typeof data.sell_usdc !== "number" ||
-          isNaN(data.sell_usdc)
+          typeof data.buy_price_usd !== "number" ||
+          isNaN(data.buy_price_usd) ||
+          typeof data.sell_price_usd !== "number" ||
+          isNaN(data.sell_price_usd)
         ) {
           throw new Error(
-            "Malformed quote: invalid or missing buy_usdc/sell_usdc",
+            "Malformed quote: invalid or missing buy_price_usd/sell_price_usd",
           );
         }
 
         if (alive) {
           setQuote({
-            buy_usdc: data.buy_usdc,
-            sell_usdc: data.sell_usdc,
+            mid_price_usd: data.mid_price_usd,
+            buy_price_usd: data.buy_price_usd,
+            sell_price_usd: data.sell_price_usd,
+            floor_price_usd: data.floor_price_usd,
           });
           setError(null);
         }
@@ -120,22 +168,23 @@ export default function VSPMarketWidget() {
         </div>
       )}
 
-      {/* Buy / Sell buttons */}
+      {/* Buy / Sell / Floor — all inline */}
       <div className="vsp-prices">
         <button
           className="btn btn-primary vsp-button"
           disabled={!isConnected || !contracts?.VSPToken}
           onClick={() => setSide("buy")}
         >
-          Buy @ {quote.buy_usdc.toFixed(4)}
+          Buy @ {quote.buy_price_usd.toFixed(4)}
         </button>
         <button
           className="btn vsp-button"
           disabled={!isConnected || !contracts?.VSPToken}
           onClick={() => setSide("sell")}
         >
-          Sell @ {quote.sell_usdc.toFixed(4)}
+          Sell @ {quote.sell_price_usd.toFixed(4)}
         </button>
+        <FloorBadge floor={quote.floor_price_usd} />
       </div>
 
       {/* Trade modal overlay */}

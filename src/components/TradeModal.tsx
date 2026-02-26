@@ -38,6 +38,20 @@ const ERC20_ABI = [
   },
 ] as const;
 
+type MMQuote = {
+  mid_price_usd: number;
+  buy_price_usd: number;
+  sell_price_usd: number;
+  floor_price_usd: number;
+};
+
+type FillPreview = {
+  side: string;
+  qty_vsp: number;
+  total_usdc: number;
+  avg_price_usd: number;
+} | null;
+
 export default function TradeModal({
   side,
   quote,
@@ -48,7 +62,7 @@ export default function TradeModal({
   refetchBalances,
 }: {
   side: "buy" | "sell";
-  quote: { buy_usdc: number; sell_usdc: number };
+  quote: MMQuote;
   walletAddress: string;
   usdcAddress: `0x${string}`;
   vspAddress: `0x${string}`;
@@ -59,7 +73,9 @@ export default function TradeModal({
   const { writeContractAsync } = useWriteContract();
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FillPreview>(null);
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | null>(
     null,
   );
@@ -71,8 +87,12 @@ export default function TradeModal({
     | undefined;
 
   const numeric = Number(amount) || 0;
-  const price = side === "buy" ? quote.buy_usdc : quote.sell_usdc;
-  const usdcNeeded = side === "buy" ? Math.floor(numeric * price * 1e6) : 0;
+  // Spot price for display and allowance estimation
+  const spotPrice = side === "buy" ? quote.buy_price_usd : quote.sell_price_usd;
+
+  // For approval, use preview total if available, otherwise estimate from spot
+  const estimatedUsdc = preview ? preview.total_usdc : numeric * spotPrice;
+  const usdcNeeded = side === "buy" ? Math.ceil(estimatedUsdc * 1e6) : 0;
   const vspNeeded = side === "sell" ? Math.floor(numeric * 1e18) : 0;
 
   if (!isConnected)
@@ -136,6 +156,37 @@ export default function TradeModal({
     }
   }, [approveSuccess, refetchAllowance]);
 
+  // Clear preview when amount changes
+  useEffect(() => {
+    setPreview(null);
+  }, [amount, side]);
+
+  async function handlePreview() {
+    if (numeric <= 0) {
+      setError("Amount must be greater than 0");
+      return;
+    }
+    try {
+      setPreviewing(true);
+      setError(null);
+      const res = await fetch("/api/mm/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side, qty_vsp: numeric }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Preview failed (${res.status})`);
+      }
+      const data = await res.json();
+      setPreview(data);
+    } catch (err: any) {
+      setError(err.message || "Preview failed");
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
   async function handleApprove() {
     if (amountNeeded <= 0) {
       setError("Amount too small for approval");
@@ -164,11 +215,15 @@ export default function TradeModal({
       setError("Amount must be greater than 0");
       return;
     }
+    if (!preview) {
+      setError("Please preview the fill first");
+      return;
+    }
     if (needsApproval) {
       setError(`Please approve ${side === "buy" ? "USDC" : "VSP"} first`);
       return;
     }
-    if (side === "buy" && usdcBalance * 1e6 < usdcNeeded) {
+    if (side === "buy" && usdcBalance < preview.total_usdc) {
       setError("Insufficient USDC balance");
       return;
     }
@@ -180,21 +235,30 @@ export default function TradeModal({
     setError(null);
     try {
       const endpoint = side === "buy" ? "/api/mm/buy" : "/api/mm/sell";
+      // For buys: max_total_usdc is the ceiling the user will pay (add 1% slippage buffer)
+      // For sells: max_total_usdc is the floor the user will accept (subtract 1% slippage buffer)
+      const slippageBuffer = side === "buy" ? 1.01 : 0.99;
+      const maxTotalUsdc = preview.total_usdc * slippageBuffer;
+
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_address: walletAddress,
-          vsp_amount: Math.floor(numeric),
-          expected_price_usdc: price,
+          qty_vsp: numeric,
+          max_total_usdc: maxTotalUsdc,
         }),
       });
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || `Failed (${res.status})`);
       }
-      await res.json();
-      alert(`${side === "buy" ? "Buy" : "Sell"} successful!`);
+      const result = await res.json();
+      alert(
+        `${side === "buy" ? "Bought" : "Sold"} ${result.qty_vsp} VSP ` +
+          `for ${result.total_usdc.toFixed(2)} USDC ` +
+          `(avg ${result.avg_price_usd.toFixed(4)}/VSP)`,
+      );
       refetchBalances();
       refetchUsdc();
       refetchVsp();
@@ -208,7 +272,7 @@ export default function TradeModal({
 
   function handleMax() {
     if (side === "buy") {
-      const maxVsp = usdcBalance / price || 0;
+      const maxVsp = usdcBalance / spotPrice || 0;
       setAmount(maxVsp.toFixed(4));
     } else {
       setAmount(vspBalance.toFixed(4));
@@ -229,6 +293,10 @@ export default function TradeModal({
           {side === "buy" ? usdcBalance.toFixed(2) : vspBalance.toFixed(4)}
         </div>
 
+        <div style={{ marginBottom: 8, fontSize: 12, color: "#888" }}>
+          Liquidation floor: ${quote.floor_price_usd.toFixed(4)}
+        </div>
+
         <input
           className="input"
           type="number"
@@ -243,10 +311,43 @@ export default function TradeModal({
           Max
         </button>
 
-        <div style={{ marginTop: 8 }}>
-          You will {side === "buy" ? "pay" : "receive"}:{" "}
-          <strong>{(numeric * price).toFixed(2)}</strong> USDC
-        </div>
+        {/* Preview section */}
+        {!preview && numeric > 0 && (
+          <button
+            className="btn btn-secondary"
+            onClick={handlePreview}
+            disabled={previewing}
+            style={{ marginTop: 8, width: "100%" }}
+          >
+            {previewing ? "Calculating…" : "Preview Fill"}
+          </button>
+        )}
+
+        {preview && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: 12,
+              background: "rgba(0,0,0,0.05)",
+              borderRadius: 8,
+            }}
+          >
+            <div>
+              You will {side === "buy" ? "pay" : "receive"}:{" "}
+              <strong>{preview.total_usdc.toFixed(2)} USDC</strong>
+            </div>
+            <div style={{ fontSize: 12, color: "#666" }}>
+              Average price: ${preview.avg_price_usd.toFixed(4)} / VSP (spot: $
+              {spotPrice.toFixed(4)})
+            </div>
+          </div>
+        )}
+
+        {!preview && numeric > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
+            Estimated (spot): ~{(numeric * spotPrice).toFixed(2)} USDC
+          </div>
+        )}
 
         <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
           Current {side === "buy" ? "USDC" : "VSP"} allowance:{" "}
@@ -288,7 +389,7 @@ export default function TradeModal({
           <button
             className="btn btn-primary"
             onClick={handleConfirm}
-            disabled={loading || needsApproval || !numeric}
+            disabled={loading || needsApproval || !numeric || !preview}
           >
             {loading ? "Processing..." : "Confirm"}
           </button>

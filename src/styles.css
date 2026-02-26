@@ -442,7 +442,81 @@ body {
   min-width: 80px;
   text-align: center;
 }
+/* ── Floor badge (append after .vsp-button in styles.css) ─────── */
 
+.floor-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.floor-badge-label {
+  font-size: 0.72rem;
+  color: #6b7280;
+  letter-spacing: 0.01em;
+}
+
+.floor-badge-icon {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.floor-badge-icon:hover,
+.floor-badge-icon:focus-visible {
+  color: #4b5563;
+  outline: none;
+}
+
+.floor-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 240px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #1f2937;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+}
+
+/* Arrow on top of tooltip */
+.floor-tooltip::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  background: #ffffff;
+  border-top: 1px solid #e5e7eb;
+  border-left: 1px solid #e5e7eb;
+  transform: rotate(45deg);
+}
+
+/* Mobile: let tooltip go wider left if needed */
+@media (max-width: 768px) {
+  .floor-tooltip {
+    right: auto;
+    left: -60px;
+    width: 220px;
+  }
+  .floor-tooltip::before {
+    right: auto;
+    left: 70px;
+  }
+  
+}
 /* Make input card narrower and centered */
 .input-card {
   max-width: 700px;
