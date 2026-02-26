@@ -1,3 +1,4 @@
+// frontend/src/App.tsx
 import { useMemo, useState } from "react";
 import { interpret, type InterpretResponse } from "./api";
 import VSPMarketWidget from "./components/VSPMarketWidget";
@@ -36,7 +37,7 @@ export default function App() {
       className="app-wrapper"
       style={{ display: "flex", flexDirection: "column", height: "100vh" }}
     >
-      {/* Fixed top bar */}
+      {/* Top bar: logo + market widget */}
       <header className="top-bar" style={{ flexShrink: 0 }}>
         <div className="top-bar-container">
           <h2 className="logo">Verisphere</h2>
@@ -44,36 +45,53 @@ export default function App() {
         </div>
       </header>
 
-      {/* Fixed prompt + title area */}
+      {/* Compact prompt bar — single line input */}
       <div
-        style={{ flexShrink: 0, padding: "16px 0 0", background: "#f8f9fa" }}
+        style={{
+          flexShrink: 0,
+          background: "#f8f9fa",
+          borderBottom: "1px solid #e5e7eb",
+          padding: "10px 0",
+        }}
       >
-        <div className="container">
-          <div className="card input-card">
-            <textarea
+        <div className="container" style={{ padding: "0 16px" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              maxWidth: 700,
+              margin: "0 auto",
+            }}
+          >
+            <input
               className="input"
-              rows={3}
+              type="text"
               placeholder="State a claim, or search a topic…"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) =>
-                (e.metaKey || e.ctrlKey) && e.key === "Enter" && submit()
-              }
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              style={{
+                flex: 1,
+                padding: "9px 14px",
+                fontSize: 14,
+                borderRadius: 10,
+              }}
             />
             <button
-              className="btn btn-primary submit-btn"
+              className="btn btn-primary"
               disabled={!canSend}
               onClick={submit}
+              style={{
+                padding: "9px 20px",
+                fontSize: 14,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
             >
-              Submit
+              {loading ? "…" : "Submit"}
             </button>
           </div>
-          {/* Topic title — fixed, doesn't scroll */}
-          {!loading && result?.title && (
-            <h2 style={{ margin: "12px 0 0", fontSize: 22, fontWeight: 700 }}>
-              {result.title}
-            </h2>
-          )}
         </div>
       </div>
 

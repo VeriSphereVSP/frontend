@@ -1,8 +1,5 @@
 // frontend/src/components/ContentPanel.tsx
-// Renders interpret results. Uses TopicView (View 1) when topic_rows exist,
-// otherwise falls back to the inline article rendering.
-import { useState } from "react";
-import TopicView from "./TopicView";
+import TopicExplorer from "./TopicExplorer";
 import ClaimModal from "./ClaimModal";
 
 function InlineClaimBadge({
@@ -108,10 +105,13 @@ export default function ContentPanel({
     return <div className="card muted">{result.message}</div>;
   }
 
-  // View 1: Topic View (Incumbent vs Challenger)
+  // Topic Explorer (replaces old TopicView)
   if (result.topic_rows && result.topic_rows.length > 0) {
     return (
-      <TopicView rows={result.topic_rows} title={result.title || "Results"} />
+      <TopicExplorer
+        rows={result.topic_rows}
+        title={result.title || "Results"}
+      />
     );
   }
 
