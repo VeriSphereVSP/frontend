@@ -273,6 +273,20 @@ export default function App() {
   const [selIdx, setSelIdx] = useState(-1);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Listen for navigation events from other components (e.g. Claims Explorer topic links)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.topic) {
+        setInput(detail.topic);
+        setTopic(detail.topic);
+        setView("explore");
+      }
+    };
+    window.addEventListener("verisphere:navigate", handler);
+    return () => window.removeEventListener("verisphere:navigate", handler);
+  }, []);
   const suggRef = useRef<HTMLDivElement>(null);
 
   const canSend = useMemo(() => input.trim().length > 0, [input]);
@@ -549,9 +563,9 @@ export default function App() {
 
       {/* Footer */}
       <footer className="footer" style={{ flexShrink: 0 }}>
-        <a href="https://github.com/VeriSphereVSP/docs/blob/main/whitepaper.md" target="_blank" rel="noopener">Whitepaper</a>
-        <a href="https://discord.gg/bzAdzceK" target="_blank" rel="noopener">Discord</a>
-        <a href="https://github.com/VeriSphereVSP/docs" target="_blank" rel="noopener">GitHub</a>
+        <a href="/whitepaper.pdf">Whitepaper</a>
+        <a href="/help">Help</a>
+        <a href="/about">About</a>
         <span>© {new Date().getFullYear()} Verisphere</span>
       </footer>
     </div>

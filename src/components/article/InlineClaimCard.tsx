@@ -11,63 +11,131 @@ import StakeInput from "./StakeInput";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
-/* ── Tiny inline link-stake widget ── */
+/* ── Link stake widget — matches claim card layout ── */
 function LinkStakeWidget({
   linkPostId,
+  linkVS,
   onDone,
 }: {
   linkPostId: number;
+  linkVS?: number;
   onDone: () => void;
 }) {
   const { stake, withdraw, loading } = useStake();
+  const { isConnected, address } = useAccount();
   const [amt, setAmt] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [userSup, setUserSup] = useState(0);
+  const [userChal, setUserChal] = useState(0);
+  const vs = n(linkVS ?? 0);
+
+  // Fetch user position on this link
+  useEffect(() => {
+    if (!address || !linkPostId) return;
+    fetch(`${API}/claims/${linkPostId}/user-stake?user=${address}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setUserSup(n(d.user_support));
+          setUserChal(n(d.user_challenge));
+        }
+      })
+      .catch(() => {});
+  }, [linkPostId, address]);
 
   const go = async () => {
     const val = parseFloat(amt);
     if (!val) return;
     setErr(null);
     try {
+      const absVal = Math.abs(val);
       if (val > 0) {
-        await stake(linkPostId, "support", Math.abs(val));
+        if (userChal > 0) {
+          const tw = Math.min(userChal, absVal);
+          await withdraw(linkPostId, "challenge", tw);
+          if (absVal - tw > 0.001) await stake(linkPostId, "support", absVal - tw);
+        } else {
+          await stake(linkPostId, "support", absVal);
+        }
       } else {
-        await stake(linkPostId, "challenge", Math.abs(val));
+        if (userSup > 0) {
+          const tw = Math.min(userSup, absVal);
+          await withdraw(linkPostId, "support", tw);
+          if (absVal - tw > 0.001) await stake(linkPostId, "challenge", absVal - tw);
+        } else {
+          await stake(linkPostId, "challenge", absVal);
+        }
       }
       setAmt("");
+      // Refresh user position
+      setTimeout(() => {
+        if (address) {
+          fetch(`${API}/claims/${linkPostId}/user-stake?user=${address}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+              if (d) { setUserSup(n(d.user_support)); setUserChal(n(d.user_challenge)); }
+            }).catch(() => {});
+        }
+      }, 3000);
       onDone();
     } catch (e: any) {
       setErr(e?.shortMessage || e?.message || String(e));
     }
   };
 
+  const posLabel = userSup > 0.001
+    ? `${userSup.toFixed(1)} support`
+    : userChal > 0.001
+      ? `${userChal.toFixed(1)} challenge`
+      : "none";
+  const posColor = userSup > 0.001 ? C.green : userChal > 0.001 ? C.red : C.muted;
+  const val = parseFloat(amt);
+  const isPos = !isNaN(val) && val > 0;
+  const isNeg = !isNaN(val) && val < 0;
+
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
-        display: "flex",
-        gap: 3,
-        alignItems: "center",
-        marginTop: 2,
-        padding: "2px 4px",
-        background: "rgba(59,130,246,0.05)",
-        borderRadius: 3,
+        marginTop: 4,
+        padding: "6px 8px",
+        background: "rgba(59,130,246,0.04)",
+        borderRadius: 6,
+        border: `1px solid rgba(59,130,246,0.12)`,
       }}
     >
-      <span style={{ fontSize: 8, color: C.gray, fontWeight: 600 }}>
-        Stake link:
-      </span>
-      <StakeInput value={amt} onChange={setAmt} onSubmit={go} />
-      <B onClick={go} dis={loading || !amt}>
-        {loading ? "…" : "Go"}
-      </B>
-      <span style={{ fontSize: 8 }}>
-        <span style={{ color: C.green }}>+sup</span>
-        <span style={{ color: C.muted }}>/</span>
-        <span style={{ color: C.red }}>−chal</span>
-      </span>
-      {err && (
-        <span style={{ fontSize: 8, color: C.red }}>{err.slice(0, 30)}</span>
-      )}
+      {/* Line 1: Stake this link + input */}
+      <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", marginBottom: 3 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>
+          Stake this link:
+        </span>
+        <StakeInput value={amt} onChange={setAmt} onSubmit={go} />
+        <B onClick={go} dis={loading || !amt}>
+          {loading ? "…" : "Go"}
+        </B>
+        <span style={{ fontSize: 10 }}>
+          <span style={{ color: isPos ? C.green : C.muted, fontWeight: isPos ? 700 : 400 }}>
+            + support
+          </span>
+          <span style={{ color: C.muted }}> / </span>
+          <span style={{ color: isNeg ? C.red : C.muted, fontWeight: isNeg ? 700 : 400 }}>
+            − challenge
+          </span>
+        </span>
+      </div>
+      {/* Line 2: Position + link metadata */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 10, color: C.muted, flexWrap: "wrap" }}>
+        {isConnected && (
+          <span>
+            Your position: <span style={{ color: posColor, fontWeight: 600 }}>{posLabel}</span>
+          </span>
+        )}
+        <span style={{ color: C.muted }}>·</span>
+        <span>Link#{linkPostId}</span>
+        <span style={{ color: vs >= 0 ? C.green : C.red }}>{vs >= 0 ? "▲" : "▼"}</span>
+        <span style={{ fontWeight: 600, color: vc(vs) }}>VS {fmt(vs)}</span>
+      </div>
+      {err && <div style={{ fontSize: 9, color: C.red, marginTop: 2 }}>{err.slice(0, 60)}</div>}
     </div>
   );
 }
@@ -94,7 +162,7 @@ function LinkPanel({
     fromId: number,
     toId: number,
     isChallenge: boolean,
-  ) => Promise<void>;
+  ) => Promise<string | null>;
   linking: boolean;
   onRefresh: () => void;
 }) {
@@ -103,6 +171,8 @@ function LinkPanel({
   const [pick, setPick] = useState<Sentence | null>(null);
   const [linkType, setLinkType] = useState<"support" | "challenge">("support");
   const [stakingLinkId, setStakingLinkId] = useState<number | null>(null);
+  const [linkInitStake, setLinkInitStake] = useState("1");
+  const { stake: stakeOnLink } = useStake();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -139,10 +209,35 @@ function LinkPanel({
       setSearch("");
       return;
     }
+    let txHash: string | null = null;
     if (direction === "outgoing") {
-      await onCreateLink(pid, pick.post_id, linkType === "challenge");
+      txHash = await onCreateLink(pid, pick.post_id, linkType === "challenge");
     } else {
-      await onCreateLink(pick.post_id, pid, linkType === "challenge");
+      txHash = await onCreateLink(pick.post_id, pid, linkType === "challenge");
+    }
+    // Stake on the new link if creation succeeded
+    // The link post_id is returned by the relay — we need to wait for the edges refresh
+    // to find it. For now, use a small delay then stake.
+    const amt = parseFloat(linkInitStake);
+    if (amt > 0 && txHash) {
+      setTimeout(async () => {
+        try {
+          // Re-fetch edges to find the new link's post_id
+          const dir = direction === "outgoing" ? "outgoing" : "incoming";
+          const res = await fetch(`${API}/claims/${pid}/edges?direction=${dir}`).then(r => r.json());
+          const newEdges = res[dir] || res.edges || [];
+          const newLink = newEdges.find((e: any) =>
+            e.claim_post_id === pick!.post_id && e.is_challenge === (linkType === "challenge")
+          );
+          if (newLink?.link_post_id) {
+            await stakeOnLink(newLink.link_post_id, "support", amt);
+            window.dispatchEvent(new Event("verisphere:data-changed"));
+          }
+        } catch (e) {
+          console.warn("Initial link stake failed:", e);
+        }
+        onRefresh();
+      }, 3000);
     }
     setPick(null);
     setSearch("");
@@ -205,14 +300,16 @@ function LinkPanel({
                   }}
                   title="Click to stake this link"
                 >
-                  <span style={{ color: isC ? C.red : C.green, fontSize: 9 }}>
-                    {isC ? "⚔" : "✦"}
-                    {direction === "outgoing" ? "→" : ""}
+                  <span style={{ color: isC ? C.red : C.green, fontSize: 10, fontWeight: 700 }}>
+                    {isC ? "✗" : "✓"}
+                    {direction === "outgoing" ? " →" : ""}
                   </span>
                   <span
                     style={{
                       flex: 1,
-                      color: isC ? "rgba(220,50,50,0.75)" : C.text,
+                      fontWeight: 600,
+                      fontSize: 11,
+                      color: isC ? C.red : C.text,
                     }}
                   >
                     {(e.claim_text || `#${e.claim_post_id}`).slice(0, 30)}
@@ -231,6 +328,7 @@ function LinkPanel({
                 {isStaking && isConnected && (
                   <LinkStakeWidget
                     linkPostId={e.link_post_id}
+                    linkVS={e.claim_vs}
                     onDone={() => {
                       setStakingLinkId(null);
                       onRefresh();
@@ -334,8 +432,9 @@ function LinkPanel({
             >
               {linkType === "support" ? "✦" : "⚔"}
             </span>
+            <StakeInput value={linkInitStake} onChange={setLinkInitStake} onSubmit={doLink} />
             <B onClick={doLink} dis={linking || !pick}>
-              {linking ? "…" : "Link"}
+              {linking ? "…" : "Link & stake"}
             </B>
           </div>
           {pick && (
@@ -386,12 +485,14 @@ export default function InlineClaimCard({
   allSentences,
   onRefresh,
   onClose,
+  postType,
 }: {
   postId: number | null;
   text: string;
   stakeSupport: number;
   stakeChallenge: number;
   verityScore: number;
+  postType?: "claim" | "link";
   sentenceId?: number;
   allSentences?: Sentence[];
   onRefresh: () => void;
@@ -420,6 +521,8 @@ export default function InlineClaimCard({
   const [goError, setGoError] = useState<string | null>(null);
   const [userSup, setUserSup] = useState(0);
   const [userChal, setUserChal] = useState(0);
+  const [initStake, setInitStake] = useState("1");
+  const [createPhase, setCreatePhase] = useState<"idle" | "creating" | "staking">("idle");
   const vs = n(verityScore);
   const [resolvedPid, setResolvedPid] = useState<number | null>(postId);
   const [checking, setChecking] = useState(false);
@@ -555,40 +658,51 @@ export default function InlineClaimCard({
   /* ── register on chain ── */
   const registerOnChain = async () => {
     if (!sentenceId) return;
-    const result = await createClaim(text);
-    const newPid = result?.post_id;
-    if (newPid != null) {
-      setResolvedPid(newPid);
-      await fetch(`${API}/article/sentence/${sentenceId}/link_post`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ post_id: newPid }),
-      });
-      try {
-        await fetch(`${API}/claims/record`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text, post_id: newPid }),
-        });
-      } catch {}
-      onRefresh();
-    } else {
-      try {
+    setCreatePhase("creating");
+    setGoError(null);
+    try {
+      const result = await createClaim(text);
+      let newPid = result?.post_id ?? null;
+      if (newPid == null || newPid < 0) {
         const check = await fetch(
           `${API}/claims/check-onchain?text=${encodeURIComponent(text)}`,
         ).then((r) => r.json());
-        if (check?.exists && check.post_id != null) {
-          setResolvedPid(check.post_id);
-          await fetch(`${API}/article/sentence/${sentenceId}/link_post`, {
+        if (check?.exists && check.post_id != null) newPid = check.post_id;
+      }
+      if (newPid != null && newPid > 0) {
+        setResolvedPid(newPid);
+        await fetch(`${API}/article/sentence/${sentenceId}/link_post`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ post_id: newPid }),
+        });
+        try {
+          await fetch(`${API}/claims/record`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ post_id: check.post_id }),
+            body: JSON.stringify({ text, post_id: newPid }),
           });
-          onRefresh();
-          return;
+        } catch {}
+        // Initial stake
+        const amt = parseFloat(initStake);
+        if (amt > 0) {
+          setCreatePhase("staking");
+          try {
+            await stake(newPid, "support", amt);
+          } catch (e: any) {
+            console.warn("Initial stake failed (claim created):", e);
+          }
         }
-      } catch {}
-      setTimeout(onRefresh, 3000);
+        window.dispatchEvent(new Event("verisphere:data-changed"));
+        onRefresh();
+      } else {
+        setGoError("Claim creation failed");
+        setTimeout(onRefresh, 3000);
+      }
+    } catch (e: any) {
+      setGoError(e?.message || "Failed to create claim");
+    } finally {
+      setCreatePhase("idle");
     }
   };
 
@@ -596,9 +710,10 @@ export default function InlineClaimCard({
     fromId: number,
     toId: number,
     isChallenge: boolean,
-  ) => {
-    await createLink(fromId, toId, isChallenge);
+  ): Promise<string | null> => {
+    const txHash = await createLink(fromId, toId, isChallenge);
     refreshEdges();
+    return txHash;
   };
 
   const posLabel =
@@ -643,7 +758,7 @@ export default function InlineClaimCard({
                       <span
                         style={{ fontSize: 12, fontWeight: 700, color: C.text }}
                       >
-                        Stake this claim
+                        {(postType === "link") ? "Stake this link" : "Stake this claim"}
                       </span>
                       <span style={{ color: C.muted }}>·</span>
                       <span style={{ fontSize: 10, color: C.gray }}>
@@ -689,7 +804,7 @@ export default function InlineClaimCard({
                     <span
                       style={{ fontSize: 12, fontWeight: 700, color: C.text }}
                     >
-                      Stake this claim:
+                      {postType === "link" ? "Stake this link:" : "Stake this claim:"}
                     </span>
                     <StakeInput value={amt} onChange={setAmt} onSubmit={doGo} />
                     <B onClick={doGo} dis={staking || !amt}>
@@ -757,7 +872,7 @@ export default function InlineClaimCard({
                 </span>
               )}
               <span style={{ color: C.muted }}>·</span>
-              <span>Claim#{pid}</span>
+              <span>{postType === "link" ? "Link" : "Claim"}#{pid}</span>
               <span style={{ color: vs >= 0 ? C.green : C.red }}>
                 {vs >= 0 ? "▲" : "▼"}
               </span>
@@ -806,9 +921,13 @@ export default function InlineClaimCard({
                   (needsApproval ? (
                     <B onClick={approveVSP}>Approve VSP</B>
                   ) : (
-                    <B onClick={registerOnChain} dis={txing}>
-                      {txing ? "Creating…" : "Create on-chain (1 VSP)"}
+                    <>
+                    <StakeInput value={initStake} onChange={setInitStake} onSubmit={registerOnChain} />
+                    <span style={{ fontSize: 9, color: C.muted }}>VSP stake</span>
+                    <B onClick={registerOnChain} dis={txing || createPhase !== "idle"}>
+                      {createPhase === "creating" ? "Creating…" : createPhase === "staking" ? "Staking…" : "Create & stake (1 VSP fee)"}
                     </B>
+                    </>
                   ))}
               </>
             )}
@@ -843,7 +962,7 @@ export default function InlineClaimCard({
       )}
 
       {/* ── Row 2: Incoming (left) | Outgoing (right) ── */}
-      {pid != null && (
+      {pid != null && postType !== "link" && (
         <div style={{ display: "flex", gap: 8 }}>
           {eLoading ? (
             <span style={{ fontSize: 9, color: C.muted }}>Loading links…</span>

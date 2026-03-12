@@ -1,5 +1,6 @@
 // frontend/src/components/ClaimsExplorer.tsx
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { InlineClaimCard } from "./ArticleView";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -21,48 +22,17 @@ type Claim = {
 type SortKey = keyof Claim;
 type SortDir = "asc" | "desc";
 
-const COLS: {
-  key: SortKey;
-  label: string;
-  w?: string;
-  align?: string;
-  fmt?: (v: any) => string;
-}[] = [
-  { key: "post_id", label: "#", w: "48px" },
-  { key: "text", label: "Claim", w: "minmax(200px, 1fr)" },
-  {
-    key: "verity_score",
-    label: "VS",
-    w: "64px",
-    fmt: (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`,
-  },
-  {
-    key: "total_stake",
-    label: "Stake",
-    w: "72px",
-    fmt: (v) => `${v.toFixed(2)}`,
-  },
-  {
-    key: "controversy",
-    label: "Controversy",
-    w: "86px",
-    fmt: (v) => v.toFixed(2),
-  },
-  {
-    key: "stake_support",
-    label: "Support",
-    w: "72px",
-    fmt: (v) => v.toFixed(2),
-  },
-  {
-    key: "stake_challenge",
-    label: "Challenge",
-    w: "72px",
-    fmt: (v) => v.toFixed(2),
-  },
-  { key: "incoming_links", label: "In", w: "40px" },
-  { key: "outgoing_links", label: "Out", w: "40px" },
-  { key: "topic", label: "Topic", w: "100px" },
+const COLS: { key: SortKey; label: string }[] = [
+  { key: "post_id", label: "#" },
+  { key: "text", label: "Claim" },
+  { key: "verity_score", label: "VS" },
+  { key: "total_stake", label: "Stake" },
+  { key: "controversy", label: "Controversy" },
+  { key: "stake_support", label: "Support" },
+  { key: "stake_challenge", label: "Challenge" },
+  { key: "incoming_links", label: "In" },
+  { key: "outgoing_links", label: "Out" },
+  { key: "topic", label: "Topic" },
 ];
 
 function vsColor(vs: number): string {
@@ -81,6 +51,7 @@ export default function ClaimsExplorer() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filter, setFilter] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const fetchClaims = useCallback(async () => {
     setLoading(true);
@@ -101,13 +72,33 @@ export default function ClaimsExplorer() {
     fetchClaims();
   }, [fetchClaims]);
 
-  const topics = useMemo(() => {
-    const set = new Set(claims.map((c) => c.topic).filter(Boolean));
-    return Array.from(set).sort();
+  // Deduplicate by post_id (a claim can appear in multiple articles)
+  const dedupClaims = useMemo(() => {
+    const seen = new Map<number, Claim>();
+    for (const c of claims) {
+      if (!seen.has(c.post_id)) {
+        seen.set(c.post_id, c);
+      } else {
+        // Keep the one with the shorter (more natural) topic name
+        const existing = seen.get(c.post_id)!;
+        if (
+          c.topic &&
+          (!existing.topic || c.topic.length < existing.topic.length)
+        ) {
+          seen.set(c.post_id, c);
+        }
+      }
+    }
+    return Array.from(seen.values());
   }, [claims]);
 
+  const topics = useMemo(() => {
+    const set = new Set(dedupClaims.map((c) => c.topic).filter(Boolean));
+    return Array.from(set).sort();
+  }, [dedupClaims]);
+
   const filtered = useMemo(() => {
-    let list = claims;
+    let list = dedupClaims;
     if (filter.trim()) {
       const q = filter.toLowerCase();
       list = list.filter(
@@ -119,7 +110,7 @@ export default function ClaimsExplorer() {
       list = list.filter((c) => c.topic === topicFilter);
     }
     return list;
-  }, [claims, filter, topicFilter]);
+  }, [dedupClaims, filter, topicFilter]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -146,15 +137,17 @@ export default function ClaimsExplorer() {
   };
 
   // Stats
-  const totalStake = claims.reduce((s, c) => s + c.total_stake, 0);
+  const totalStake = dedupClaims.reduce((s, c) => s + c.total_stake, 0);
   const avgVS =
-    claims.length > 0
-      ? claims.reduce((s, c) => s + c.verity_score, 0) / claims.length
+    dedupClaims.length > 0
+      ? dedupClaims.reduce((s, c) => s + c.verity_score, 0) / dedupClaims.length
       : 0;
   const mostControversial =
-    claims.length > 0
-      ? claims.reduce((a, b) => (a.controversy > b.controversy ? a : b))
+    dedupClaims.length > 0
+      ? dedupClaims.reduce((a, b) => (a.controversy > b.controversy ? a : b))
       : null;
+
+  const fmtVS = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
@@ -180,7 +173,7 @@ export default function ClaimsExplorer() {
         style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap" }}
       >
         {[
-          { label: "Claims", value: claims.length },
+          { label: "Claims", value: String(dedupClaims.length) },
           { label: "Total Staked", value: `${totalStake.toFixed(1)} VSP` },
           {
             label: "Avg VS",
@@ -255,7 +248,7 @@ export default function ClaimsExplorer() {
           <option value="">All topics</option>
           {topics.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {t.length > 40 ? t.slice(0, 37) + "…" : t}
             </option>
           ))}
         </select>
@@ -294,106 +287,268 @@ export default function ClaimsExplorer() {
       ) : (
         <div
           style={{
-            overflowX: "auto",
             border: "1px solid #e5e7eb",
             borderRadius: 8,
+            overflow: "hidden",
           }}
         >
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}
+          {/* Header row */}
+          <div
+            style={{
+              display: "flex",
+              background: "#f8fafc",
+              borderBottom: "2px solid #e5e7eb",
+              padding: "0 12px",
+            }}
           >
-            <thead>
-              <tr
+            {COLS.map((col) => (
+              <div
+                key={col.key}
+                onClick={() => toggleSort(col.key)}
                 style={{
-                  background: "#f8fafc",
-                  borderBottom: "2px solid #e5e7eb",
+                  padding: "8px 6px",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  whiteSpace: "nowrap",
+                  fontWeight: 600,
+                  fontSize: 11,
+                  color: sortKey === col.key ? "#2563eb" : "#6b7280",
+                  flex:
+                    col.key === "text"
+                      ? "3 1 0"
+                      : col.key === "topic"
+                        ? "1.5 1 0"
+                        : "0 0 60px",
+                  textAlign:
+                    col.key === "text" || col.key === "topic"
+                      ? "left"
+                      : "right",
                 }}
               >
-                {COLS.map((col) => (
-                  <th
-                    key={col.key}
-                    onClick={() => toggleSort(col.key)}
+                {col.label}
+                {sortKey === col.key && (
+                  <span style={{ marginLeft: 2, fontSize: 10 }}>
+                    {sortDir === "asc" ? "▲" : "▼"}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Data rows */}
+          {sorted.map((c, i) => {
+            const isExpanded = expandedId === c.post_id;
+            return (
+              <div key={c.post_id}>
+                {/* Claim row */}
+                <div
+                  onClick={() => setExpandedId(isExpanded ? null : c.post_id)}
+                  style={{
+                    display: "flex",
+                    padding: "0 12px",
+                    cursor: "pointer",
+                    borderBottom: isExpanded ? "none" : "1px solid #f0f0f0",
+                    background: isExpanded
+                      ? "#f0f4ff"
+                      : i % 2 === 0
+                        ? "#fff"
+                        : "#fafbfc",
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isExpanded)
+                      e.currentTarget.style.background = "#f0f4ff";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isExpanded)
+                      e.currentTarget.style.background =
+                        i % 2 === 0 ? "#fff" : "#fafbfc";
+                  }}
+                >
+                  {/* # */}
+                  <div
                     style={{
-                      padding: "8px 8px",
-                      textAlign: col.key === "text" ? "left" : "right",
-                      cursor: "pointer",
-                      userSelect: "none",
-                      whiteSpace: "nowrap",
-                      fontWeight: 600,
-                      color: sortKey === col.key ? "#2563eb" : "#6b7280",
-                      fontSize: 11,
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      color: "#9ca3af",
+                      textAlign: "right",
                     }}
                   >
-                    {col.label}
-                    {sortKey === col.key && (
-                      <span style={{ marginLeft: 2, fontSize: 10 }}>
-                        {sortDir === "asc" ? "▲" : "▼"}
-                      </span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((c, i) => (
-                <tr
-                  key={c.post_id}
-                  style={{
-                    borderBottom: "1px solid #f0f0f0",
-                    background: i % 2 === 0 ? "#fff" : "#fafbfc",
-                    cursor: "default",
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background = "#f0f4ff")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background =
-                      i % 2 === 0 ? "#fff" : "#fafbfc")
-                  }
-                >
-                  {COLS.map((col) => {
-                    const raw = c[col.key];
-                    let display: string | JSX.Element;
-
-                    if (col.key === "text") {
-                      const t = String(raw);
-                      display = t.length > 60 ? t.slice(0, 57) + "…" : t;
-                    } else if (col.key === "verity_score") {
-                      const v = raw as number;
-                      display = (
-                        <span style={{ color: vsColor(v), fontWeight: 600 }}>
-                          {v > 0 ? "+" : ""}
-                          {v.toFixed(1)}%
-                        </span>
-                      );
-                    } else if (col.fmt) {
-                      display = col.fmt(raw);
-                    } else {
-                      display = String(raw ?? "");
-                    }
-
-                    return (
-                      <td
-                        key={col.key}
-                        style={{
-                          padding: "6px 8px",
-                          textAlign: col.key === "text" ? "left" : "right",
-                          maxWidth: col.key === "text" ? 320 : undefined,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          color: col.key === "post_id" ? "#9ca3af" : "#374151",
+                    {c.post_id}
+                  </div>
+                  {/* Claim text */}
+                  <div
+                    style={{
+                      flex: "3 1 0",
+                      padding: "6px",
+                      fontSize: 12,
+                      color: "#374151",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={c.text}
+                  >
+                    {c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text}
+                  </div>
+                  {/* VS */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: vsColor(c.verity_score),
+                        fontWeight: 600,
+                      }}
+                    >
+                      {fmtVS(c.verity_score)}
+                    </span>
+                  </div>
+                  {/* Stake */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.total_stake.toFixed(2)}
+                  </div>
+                  {/* Controversy */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.controversy.toFixed(2)}
+                  </div>
+                  {/* Support */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.stake_support.toFixed(2)}
+                  </div>
+                  {/* Challenge */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.stake_challenge.toFixed(2)}
+                  </div>
+                  {/* In */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.incoming_links}
+                  </div>
+                  {/* Out */}
+                  <div
+                    style={{
+                      flex: "0 0 60px",
+                      padding: "6px",
+                      fontSize: 12,
+                      textAlign: "right",
+                      color: "#374151",
+                    }}
+                  >
+                    {c.outgoing_links}
+                  </div>
+                  {/* Topic */}
+                  <div
+                    style={{
+                      flex: "1.5 1 0",
+                      padding: "6px",
+                      fontSize: 11,
+                      color: "#6b7280",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {c.topic ? (
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Navigate to the topic article
+                          window.dispatchEvent(
+                            new CustomEvent("verisphere:navigate", {
+                              detail: { topic: c.topic },
+                            }),
+                          );
                         }}
-                        title={col.key === "text" ? String(raw) : undefined}
+                        style={{
+                          color: "#2563eb",
+                          textDecoration: "none",
+                          fontSize: 11,
+                        }}
+                        title={`Open article: ${c.topic}`}
                       >
-                        {display}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        {c.topic.length > 25
+                          ? c.topic.slice(0, 22) + "…"
+                          : c.topic}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                </div>
+
+                {/* Expanded claim card */}
+                {isExpanded && (
+                  <div
+                    style={{
+                      padding: "0 12px 12px",
+                      background: "#f0f4ff",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <div style={{ marginLeft: 44, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                    <InlineClaimCard
+                      postId={c.post_id}
+                      text={c.text}
+                      stakeSupport={c.stake_support}
+                      stakeChallenge={c.stake_challenge}
+                      verityScore={c.verity_score}
+                      onRefresh={fetchClaims}
+                      onClose={() => setExpandedId(null)}
+                    />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

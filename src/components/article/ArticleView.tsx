@@ -172,7 +172,7 @@ export default function ArticleView({
         disputed.push(s);
         continue;
       }
-      if (s.post_id != null && n(s.verity_score) < 0) {
+      if (s.post_id != null && n(s.verity_score) <= 0) {
         disputed.push(s);
         continue;
       }
@@ -208,6 +208,16 @@ export default function ArticleView({
         !narTexts.has(s.text.toLowerCase().trim()),
     );
 
+    // Sort disputed: controversy desc, then total stake desc
+    finalDisputed.sort((a, b) => {
+      const aTotal = n(a.stake_support) + n(a.stake_challenge);
+      const bTotal = n(b.stake_support) + n(b.stake_challenge);
+      // Controversy = min(support, challenge) / max(support, challenge) — higher is more controversial
+      const aContr = aTotal > 0 ? Math.min(n(a.stake_support), n(a.stake_challenge)) / Math.max(n(a.stake_support), n(a.stake_challenge), 0.001) : 0;
+      const bContr = bTotal > 0 ? Math.min(n(b.stake_support), n(b.stake_challenge)) / Math.max(n(b.stake_support), n(b.stake_challenge), 0.001) : 0;
+      if (bContr !== aContr) return bContr - aContr;
+      return bTotal - aTotal;
+    });
     return { cleanNarrative, finalDisputed };
   }
 
@@ -444,7 +454,7 @@ export default function ArticleView({
                             letterSpacing: 0.4,
                           }}
                         >
-                          Disputed
+                          Disputed / Under Review
                         </div>
                         {finalDisputed.map((s) => {
                           const vs = n(s.verity_score);

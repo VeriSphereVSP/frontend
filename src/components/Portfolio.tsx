@@ -22,7 +22,15 @@ type Position = {
   is_active: boolean;
   position_status: "winning" | "losing" | "neutral" | "hedged";
   estimated_apr: number;
+  apr_breakdown?: {
+    apr: number; r_min: number; r_max: number;
+    vs: number; abs_vs: number; v: number;
+    total_stake: number; s_max: number; participation: number;
+    r_base?: number; r_eff: number; is_winner: boolean;
+    tranche?: number; position_weight?: number; num_tranches?: number;
+  };
   creator?: string;
+  topic?: string;
 };
 
 type PortfolioData = {
@@ -34,6 +42,7 @@ type PortfolioData = {
     total_challenge: number;
     winning_count: number;
     losing_count: number;
+    weighted_apr: number;
     neutral_count: number;
   };
   positions: Position[];
@@ -223,6 +232,18 @@ function PositionRow({ pos }: { pos: Position }) {
             >
               {pos.post_type === "link" ? "Link" : "Claim"}
             </span>
+            {pos.topic && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { topic: pos.topic } }));
+                }}
+                style={{ fontSize: 10, color: "#2563eb", cursor: "pointer", textDecoration: "underline" }}
+                title={"View in article: " + pos.topic}
+              >
+                {pos.topic.length > 20 ? pos.topic.slice(0, 17) + "…" : pos.topic}
+              </span>
+            )}
             { (
               <span
                 style={{ color: vsColor(pos.verity_score), fontWeight: 600 }}
@@ -261,6 +282,22 @@ function PositionRow({ pos }: { pos: Position }) {
                 {pos.estimated_apr.toFixed(1)}% APR
               </div>
             )}
+          {pos.apr_breakdown && expanded && (
+            <div style={{ fontSize: 9, color: C.textMuted, marginTop: 2, lineHeight: 1.6, textAlign: "right" }}>
+              <div>|VS| {pos.apr_breakdown.abs_vs.toFixed(1)}% → v={pos.apr_breakdown.v.toFixed(2)}</div>
+              <div>Stake {pos.apr_breakdown.total_stake.toFixed(1)} / sMax {pos.apr_breakdown.s_max.toFixed(1)} → participation={pos.apr_breakdown.participation.toFixed(2)}</div>
+              <div>
+                Queue: tranche {(pos.apr_breakdown.tranche ?? 0) + 1}/{pos.apr_breakdown.num_tranches ?? 10}
+                {" "}→ weight={((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%
+              </div>
+              <div>
+                r_base={pos.apr_breakdown.r_base?.toFixed(1) ?? pos.apr_breakdown.r_eff.toFixed(1)}%
+                {" "}× {((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%
+                {" "}= r_eff={pos.apr_breakdown.r_eff.toFixed(1)}%
+                {" "}({pos.apr_breakdown.vs === 0 ? "neutral" : pos.apr_breakdown.is_winner ? "earning" : "losing"})
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Expand chevron */}
@@ -286,6 +323,7 @@ function PositionRow({ pos }: { pos: Position }) {
             background: "#fafafa",
           }}
         >
+          <div style={{ marginLeft: 44, paddingLeft: 12, borderLeft: "2px solid " + C.grayBorder }}>
           {/* Compact: YOUR POSITION | QUEUE TOTALS — single row with thumb icons */}
           <div
             style={{
@@ -401,9 +439,9 @@ function PositionRow({ pos }: { pos: Position }) {
             <div style={{ marginBottom: 6 }}>
               <div
                 style={{
-                  height: 5,
-                  borderRadius: 3,
-                  background: C.redMid,
+                  height: 3,
+                  borderRadius: 2,
+                  background: "rgba(220, 38, 38, 0.10)",
                   overflow: "hidden",
                 }}
               >
@@ -443,15 +481,17 @@ function PositionRow({ pos }: { pos: Position }) {
             </div>
           )}
 
-          {/* Claim actions: stake, unstake, link */}
+          {/* Claim/link actions: stake, unstake, link */}
           <InlineClaimCard
             postId={pos.post_id}
             text={pos.text}
             stakeSupport={pos.pool_support}
             stakeChallenge={pos.pool_challenge}
             verityScore={pos.verity_score}
-            onRefresh={() => window.location.reload()}
+            postType={pos.post_type === "link" ? "link" : "claim"}
+            onRefresh={() => window.dispatchEvent(new Event("verisphere:data-changed"))}
           />
+          </div>
         </div>
       )}
     </div>
@@ -700,6 +740,12 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
           color={summary.losing_count > 0 ? C.red : C.gray}
           sub={`${fmt(summary.total_challenge)} challenge`}
         />
+        <StatCard
+          label="Overall APR"
+          value={`${summary.weighted_apr > 0 ? "+" : ""}${(summary.weighted_apr ?? 0).toFixed(1)}%`}
+          color={summary.weighted_apr > 0 ? C.green : summary.weighted_apr < 0 ? C.red : C.gray}
+          sub="weighted average"
+        />
       </div>
 
       {/* Win/loss ratio bar */}
@@ -766,7 +812,8 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
       {/* Filter tabs */}
       <FilterTabs active={filter} counts={counts} onChange={setFilter} />
 
-      {/* Positions list */}
+      {/* Positions list — scrollable */}
+      <div style={{ maxHeight: "60vh", overflowY: "auto", paddingRight: 4 }}>
       {filtered.length === 0 ? (
         <div
           style={{
@@ -786,6 +833,7 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
       ) : (
         filtered.map((pos) => <PositionRow key={pos.post_id} pos={pos} />)
       )}
+      </div>
     </div>
   );
 }
