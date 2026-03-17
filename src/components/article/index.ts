@@ -6,3 +6,5 @@ export { default as MiniButton } from "./MiniButton";
 export { default as StakeInput } from "./StakeInput";
 export * from "./theme";
 export * from "./types";
+
+export { default as ClaimPickerModal } from "./ClaimPickerModal";

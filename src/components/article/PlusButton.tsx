@@ -4,6 +4,7 @@ import { useAccount } from "wagmi";
 import { useCreateClaim, useStake, fetchBalance } from "@verisphere/protocol";
 import { C } from "./theme";
 import B from "./MiniButton";
+import { friendlyError, fireToast } from "../../utils/errorMessages";
 import StakeInput from "./StakeInput";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
@@ -94,7 +95,8 @@ export default function PlusBtn({
         if (check?.exists && check.post_id != null) postId = check.post_id;
       }
     } catch (e: any) {
-      setError(e?.message || "Failed to create claim on-chain");
+      setError(friendlyError(e));
+      fireToast(friendlyError(e), "error");
       setPhase("input");
       return;
     }
@@ -146,6 +148,7 @@ export default function PlusBtn({
     }
 
     window.dispatchEvent(new Event("verisphere:data-changed"));
+    fireToast("Claim created and staked!", "success");
     setTxt("");
     setStakeAmt("1");
     setSug(null);
@@ -275,6 +278,7 @@ export default function PlusBtn({
             value={txt}
             onChange={(e) => setTxt(e.target.value)}
             placeholder="Write a factual claim to add on-chain…"
+            maxLength={500}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -317,6 +321,7 @@ export default function PlusBtn({
               onSubmit={cleanup}
             />
             <span style={{ fontSize: 10, color: C.muted }}>VSP stake</span>
+            <span style={{ fontSize: 9, color: txt.length > 450 ? "#ef4444" : C.muted }}>{txt.length}/500</span>
             <B
               onClick={() => {
                 setOpen(false);

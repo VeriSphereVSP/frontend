@@ -5,6 +5,13 @@ import { InlineClaimCard } from "./ArticleView";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
+const triggerFullReindex = async (address: string) => {
+  try {
+    // Reindex all user positions
+    await fetch(`${API_BASE}/reindex/0?user=${address}`, { method: "POST" });
+  } catch (e) { /* non-fatal */ }
+};
+
 // ── Types ──────────────────────────────────────────────────
 
 type Position = {
@@ -212,9 +219,9 @@ function PositionRow({ pos }: { pos: Position }) {
               fontWeight: 500,
               color: C.text,
               lineHeight: 1.4,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              overflow: expanded ? "visible" : "hidden",
+              textOverflow: expanded ? "unset" : "ellipsis",
+              whiteSpace: expanded ? "normal" : "nowrap",
             }}
           >
             {pos.text}
@@ -284,18 +291,10 @@ function PositionRow({ pos }: { pos: Position }) {
             )}
           {pos.apr_breakdown && expanded && (
             <div style={{ fontSize: 9, color: C.textMuted, marginTop: 2, lineHeight: 1.6, textAlign: "right" }}>
-              <div>|VS| {pos.apr_breakdown.abs_vs.toFixed(1)}% → v={pos.apr_breakdown.v.toFixed(2)}</div>
-              <div>Stake {pos.apr_breakdown.total_stake.toFixed(1)} / sMax {pos.apr_breakdown.s_max.toFixed(1)} → participation={pos.apr_breakdown.participation.toFixed(2)}</div>
-              <div>
-                Queue: tranche {(pos.apr_breakdown.tranche ?? 0) + 1}/{pos.apr_breakdown.num_tranches ?? 10}
-                {" "}→ weight={((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%
-              </div>
-              <div>
-                r_base={pos.apr_breakdown.r_base?.toFixed(1) ?? pos.apr_breakdown.r_eff.toFixed(1)}%
-                {" "}× {((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%
-                {" "}= r_eff={pos.apr_breakdown.r_eff.toFixed(1)}%
-                {" "}({pos.apr_breakdown.vs === 0 ? "neutral" : pos.apr_breakdown.is_winner ? "earning" : "losing"})
-              </div>
+              <div>Truth Pressure: {pos.apr_breakdown.abs_vs.toFixed(1)}%</div>
+              <div>Post Size: {pos.apr_breakdown.total_stake.toFixed(1)} / {pos.apr_breakdown.s_max.toFixed(1)}</div>
+              <div>Queue Position: {(pos.apr_breakdown.tranche ?? 0) + 1} of {pos.apr_breakdown.num_tranches ?? 10} ({((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%)</div>
+              <div>Rate: {pos.apr_breakdown.r_eff.toFixed(1)}% ({pos.apr_breakdown.vs === 0 ? "neutral" : pos.apr_breakdown.is_winner ? "earning" : "losing"})</div>
             </div>
           )}
         </div>
@@ -567,7 +566,7 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/portfolio/${address}`);
+      const res = await fetch(`${API_BASE}/portfolio/fast/${address}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json);

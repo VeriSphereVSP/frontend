@@ -1,4 +1,5 @@
 // frontend/src/components/TradeModal.tsx
+import { fireToast, friendlyError } from "../utils/errorMessages";
 import { useState, useEffect } from "react";
 import { useAccount, useBalance, useWalletClient } from "wagmi";
 

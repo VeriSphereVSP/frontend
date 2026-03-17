@@ -2,8 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ClaimCard as ClaimCardT } from "../types";
 import { useAccount } from "wagmi";
-import { useCreateClaim } from "../web3/useCreateClaim";
-import { useStake } from "../web3/useStake";
+import { useCreateClaim, useStake } from "@verisphere/protocol";
 
 type ClaimState = {
   post_id: number;
@@ -36,7 +35,7 @@ export default function ClaimCard({
 
   const {
     createClaim,
-    isLoading: createLoading,
+    loading: createLoading,
     error: createError,
   } = useCreateClaim();
 

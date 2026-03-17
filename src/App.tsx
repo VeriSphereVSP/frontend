@@ -54,7 +54,7 @@ function LandingHero({ onSubmit }: { onSubmit: (q: string) => void }) {
         }}
       >
         Verisphere is a truth-staking protocol. Every factual claim lives
-        on-chain. Back what you believe with real tokens — and earn when you're
+        on-chain. Back what you believe with real VSP tokens — and earn when you're
         right.
       </p>
 
@@ -563,9 +563,9 @@ export default function App() {
 
       {/* Footer */}
       <footer className="footer" style={{ flexShrink: 0 }}>
-        <a href="/whitepaper.pdf">Whitepaper</a>
-        <a href="/help">Help</a>
-        <a href="/about">About</a>
+        <a href="https://github.com/VeriSphereVSP/docs/blob/main/whitepaper.md" target="_blank" rel="noopener noreferrer">Whitepaper</a>
+        <a href="https://github.com/VeriSphereVSP/docs/blob/main/guide.md" target="_blank" rel="noopener noreferrer">How to Play</a>
+        <a href="https://github.com/VeriSphereVSP/docs" target="_blank" rel="noopener noreferrer">About</a>
         <span>© {new Date().getFullYear()} Verisphere</span>
       </footer>
     </div>

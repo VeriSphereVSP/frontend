@@ -57,7 +57,7 @@ export default function ClaimsExplorer() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/claims/all?limit=500`);
+      const res = await fetch(`${API}/claims/fast/all?limit=500`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setClaims(data.claims || []);
@@ -390,7 +390,7 @@ export default function ClaimsExplorer() {
                     }}
                     title={c.text}
                   >
-                    {c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text}
+                    {isExpanded ? c.text : (c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text)}
                   </div>
                   {/* VS */}
                   <div
