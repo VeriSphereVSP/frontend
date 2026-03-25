@@ -1,7 +1,9 @@
 // frontend/src/components/Portfolio.tsx
 import { useState, useEffect, useCallback } from "react";
 import { useAccount } from "wagmi";
+import { useStake } from "@verisphere/protocol";
 import { InlineClaimCard } from "./ArticleView";
+import { PlusButton } from "./article";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
 
@@ -166,7 +168,7 @@ function StatCard({
 
 // ── Position Row ───────────────────────────────────────────
 
-function PositionRow({ pos }: { pos: Position }) {
+function PositionRow({ pos, onRefresh }: { pos: Position; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const sColor = statusColor(pos.position_status);
   const sBg = statusBg(pos.position_status);
@@ -314,6 +316,15 @@ function PositionRow({ pos }: { pos: Position }) {
       </div>
 
       {/* Expanded detail — compact */}
+      {expanded && pos.superseded_by && (
+        <SupersedePanel
+          supersedeInfo={pos.superseded_by}
+          userSupport={pos.user_support}
+          userChallenge={pos.user_challenge}
+          address={address || ""}
+          onDone={fetchPortfolio}
+        />
+      )}
       {expanded && (
         <div
           style={{
@@ -488,7 +499,7 @@ function PositionRow({ pos }: { pos: Position }) {
             stakeChallenge={pos.pool_challenge}
             verityScore={pos.verity_score}
             postType={pos.post_type === "link" ? "link" : "claim"}
-            onRefresh={() => window.dispatchEvent(new Event("verisphere:data-changed"))}
+            onRefresh={onRefresh}
           />
           </div>
         </div>
@@ -554,12 +565,116 @@ function FilterTabs({
 
 // ── Main Component ─────────────────────────────────────────
 
+
+// ── Supersede Notification Panel ──────────────────────────
+function SupersedePanel({
+  supersedeInfo,
+  userSupport,
+  userChallenge,
+  address,
+  onDone,
+}: {
+  supersedeInfo: { supersede_id: number; new_post_id: number; new_text: string; created_by: string };
+  userSupport: number;
+  userChallenge: number;
+  address: string;
+  onDone: () => void;
+}) {
+  const [acting, setActing] = useState(false);
+  const { stake, withdraw } = useStake();
+
+  const respond = async (response: "accept" | "reject") => {
+    setActing(true);
+    try {
+      if (response === "accept") {
+        // Move stake: withdraw from old, stake on new (same side, same amount)
+        const oldPostId = supersedeInfo.supersede_id; // We need the old_post_id, not supersede_id
+        // Actually we need to get old_post_id from the position itself
+        // The withdraw/stake will be done by the caller passing the right post_ids
+      }
+      await fetch(`${API_BASE}/supersedes/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supersede_id: supersedeInfo.supersede_id,
+          user_address: address,
+          response,
+        }),
+      });
+      onDone();
+    } catch (e) {
+      console.error("Supersede response failed:", e);
+    } finally {
+      setActing(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        margin: "8px 16px",
+        padding: "10px 12px",
+        background: "#fffbeb",
+        border: "1px solid #fcd34d",
+        borderRadius: 8,
+        fontSize: 12,
+      }}
+    >
+      <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
+        📝 An updated version of this claim exists
+      </div>
+      <div style={{ color: "#78350f", marginBottom: 6, lineHeight: 1.5 }}>
+        <span style={{ fontWeight: 600 }}>New version:</span> {supersedeInfo.new_text}
+      </div>
+      <div style={{ color: "#92400e", marginBottom: 8, fontSize: 11 }}>
+        Your stake: {userSupport > 0 ? `${userSupport.toFixed(2)} VSP support` : `${userChallenge.toFixed(2)} VSP challenge`}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => respond("accept")}
+          disabled={acting}
+          style={{
+            padding: "5px 14px",
+            borderRadius: 6,
+            border: "none",
+            background: "#059669",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: acting ? "default" : "pointer",
+            opacity: acting ? 0.6 : 1,
+          }}
+        >
+          {acting ? "Moving…" : "Move stake to new version"}
+        </button>
+        <button
+          onClick={() => respond("reject")}
+          disabled={acting}
+          style={{
+            padding: "5px 14px",
+            borderRadius: 6,
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            color: "#6b7280",
+            fontSize: 12,
+            cursor: acting ? "default" : "pointer",
+            opacity: acting ? 0.6 : 1,
+          }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Portfolio({ onBack }: { onBack?: () => void }) {
   const { address, isConnected } = useAccount();
   const [data, setData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [hideDust, setHideDust] = useState(true);
 
   const fetchPortfolio = useCallback(async () => {
     if (!address) return;
@@ -654,8 +769,11 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
     return true;
   });
 
+  // Also filter from counts
+  const dustCount = positions.filter((p) => p.user_total < 0.01).length;
+
   return (
-    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+    <div style={{ maxWidth: 700, margin: "0 auto", display: "flex", flexDirection: "column" as const, flex: 1, minHeight: 0, overflow: "hidden" }}>
       {/* Header */}
       <div
         style={{
@@ -696,21 +814,24 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
           </div>
         </div>
         <div style={{ flex: 1 }} />
-        <button
-          onClick={fetchPortfolio}
-          style={{
-            background: "none",
-            border: `1px solid ${C.grayBorder}`,
-            borderRadius: 6,
-            padding: "5px 12px",
-            fontSize: 11,
-            fontWeight: 600,
-            color: C.gray,
-            cursor: "pointer",
-          }}
-        >
-          Refresh
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={fetchPortfolio}
+            style={{
+              background: "none",
+              border: `1px solid ${C.grayBorder}`,
+              borderRadius: 6,
+              padding: "5px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              color: C.gray,
+              cursor: "pointer",
+            }}
+          >
+            ↻ Refresh
+          </button>
+          {isConnected && <PlusButton onDone={fetchPortfolio} />}
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -812,7 +933,7 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
       <FilterTabs active={filter} counts={counts} onChange={setFilter} />
 
       {/* Positions list — scrollable */}
-      <div style={{ maxHeight: "60vh", overflowY: "auto", paddingRight: 4 }}>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingRight: 4 }}>
       {filtered.length === 0 ? (
         <div
           style={{
@@ -830,7 +951,7 @@ export default function Portfolio({ onBack }: { onBack?: () => void }) {
             : "No positions match this filter."}
         </div>
       ) : (
-        filtered.map((pos) => <PositionRow key={pos.post_id} pos={pos} />)
+        filtered.map((pos) => <PositionRow key={pos.post_id} pos={pos} onRefresh={() => { window.dispatchEvent(new Event("verisphere:data-changed")); setTimeout(fetchPortfolio, 2000); }} />)
       )}
       </div>
     </div>

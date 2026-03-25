@@ -7,6 +7,7 @@ import type { Sentence, Article } from "./types";
 import B from "./MiniButton";
 import PlusButton from "./PlusButton";
 import StakeInput from "./StakeInput";
+import { fireTxProgress } from "./TxProgress";
 import InlineClaimCard from "./InlineClaimCard";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
@@ -19,7 +20,7 @@ export default function ArticleView({
   onRefresh: () => void;
 }) {
   useEffect(injectCSS, []);
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const { createClaim, loading: txing } = useCreateClaim();
   const { stake, loading: staking } = useStake();
   const [selId, setSelId] = useState<number | null>(null);
@@ -33,6 +34,7 @@ export default function ArticleView({
     suggested: string;
   } | null>(null);
   const [stakeAmt, setStakeAmt] = useState("1");
+  const [confirmChoice, setConfirmChoice] = useState<"suggested" | "original">("suggested");
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   const allSent = useMemo(() => {
@@ -121,6 +123,15 @@ export default function ArticleView({
     const sid = editId ?? selId;
     if (!sid) return;
 
+    const stakeVal = parseFloat(stakeAmt);
+    const steps = [
+      { label: "Create claim on-chain", status: "pending" as const },
+      ...(stakeVal !== 0 ? [{ label: `Stake ${Math.abs(stakeVal)} VSP ${stakeVal > 0 ? "support" : "challenge"}`, status: "pending" as const }] : []),
+      { label: "Insert into article", status: "pending" as const },
+    ];
+    fireTxProgress({ action: "start", title: "Creating Claim", steps });
+    fireTxProgress({ action: "step", stepIndex: 0 });
+
     setEditPhase("creating");
 
     // 1. Create claim on-chain
@@ -138,11 +149,13 @@ export default function ArticleView({
       }
     } catch (e: any) {
       console.error("createClaim error:", e);
+      fireTxProgress({ action: "error", error: "Claim creation failed: " + (e.message || e) });
       setEditPhase("edit");
       return;
     }
 
     if (postId == null || postId < 0) {
+      fireTxProgress({ action: "error", error: "Claim creation failed — no post ID returned" });
       setEditPhase("edit");
       return;
     }
@@ -151,6 +164,7 @@ export default function ArticleView({
     const amt = parseFloat(stakeAmt);
     if (amt !== 0) {
       setEditPhase("staking");
+      fireTxProgress({ action: "step", stepIndex: 1 });
       try {
         const side = amt > 0 ? "support" : "challenge";
         await stake(postId, side, Math.abs(amt));
@@ -159,7 +173,9 @@ export default function ArticleView({
       }
     }
 
-    // 3. Insert into article as a new sentence (find the section)
+    // 3. Insert into article as a new sentence
+    const insertStepIdx = parseFloat(stakeAmt) !== 0 ? 2 : 1;
+    fireTxProgress({ action: "step", stepIndex: insertStepIdx });
     try {
       let sectionId: number | null = null;
       for (const sec of article.sections) {
@@ -190,24 +206,50 @@ export default function ArticleView({
       console.warn("Article insert failed (claim is on-chain):", e);
     }
 
+    fireTxProgress({ action: "done" });
+
+    // Record supersede if editing an existing on-chain claim
+    const editedSent = allSent.find((s) => s.sentence_id === sid);
+    if (editedSent?.post_id && postId && editedSent.post_id !== postId) {
+      try {
+        const addr = address || "";
+        await fetch(`${API}/supersede`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            old_post_id: editedSent.post_id,
+            new_post_id: postId,
+            created_by: addr,
+          }),
+        });
+      } catch (e) {
+        console.debug("Supersede record failed (non-fatal):", e);
+      }
+    }
+
     window.dispatchEvent(new Event("verisphere:data-changed"));
     setEditId(null);
     setEditPhase("edit");
     setEditSug(null);
+    setConfirmChoice("suggested");
     setStakeAmt("1");
     onRefresh();
   };
 
   /* ── section builder ── */
-  function buildSection(sec: {
-    section_id: number;
-    heading: string;
-    sentences: Sentence[];
-  }) {
+  function buildSection(
+    sec: {
+      section_id: number;
+      heading: string;
+      sentences: Sentence[];
+    },
+    globalSeenPid?: Set<number>,
+    globalSeenText?: Set<string>,
+  ) {
     const narrative: Sentence[] = [];
     const disputed: Sentence[] = [];
-    const seenPid = new Set<number>();
-    const seenText = new Set<string>();
+    const seenPid = globalSeenPid || new Set<number>();
+    const seenText = globalSeenText || new Set<string>();
 
     for (const s of sec.sentences) {
       const key = s.text.toLowerCase().trim();
@@ -217,11 +259,14 @@ export default function ArticleView({
       seenText.add(key);
       if (isDup) continue;
 
-      // Disputed = on-chain with negative VS only.
-      // replaced_by is irrelevant — claims are independent entities.
-      if (s.post_id != null && n(s.verity_score) < 0) {
-        disputed.push(s);
-        continue;
+      // On-chain claims with no stakes at all → hide completely
+      if (s.post_id != null) {
+        const totalStake = n(s.stake_support) + n(s.stake_challenge);
+        if (totalStake < 0.001 && n(s.verity_score) === 0) continue;  // Unstaked with no VS — disappear
+        if (n(s.verity_score) <= 0) {
+          disputed.push(s);  // Staked but losing → disputed
+          continue;
+        }
       }
       narrative.push(s);
     }
@@ -298,7 +343,7 @@ export default function ArticleView({
         minHeight: 0,
       }}
     >
-      {/* Fixed header — flexShrink:0 keeps it pinned at top */}
+      {/* Fixed header */}
       <div
         style={{
           flexShrink: 0,
@@ -307,17 +352,53 @@ export default function ArticleView({
           backdropFilter: "blur(6px)",
           borderBottom: `1px solid ${C.gb}`,
           padding: "10px 20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: C.text }}>
           {article.title}
         </h2>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={async () => {
+              try {
+                await fetch(`${API}/article/${encodeURIComponent(article.topic_key || article.title)}/refresh`, { method: "POST" });
+              } catch {}
+              onRefresh();
+            }}
+            title="Refresh"
+            style={{
+              background: "none",
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              padding: "5px 12px",
+              cursor: "pointer",
+              fontSize: 12,
+              color: "#6b7280",
+            }}
+          >
+            ↻ Refresh
+          </button>
+          {isConnected && article.sections.length > 0 && (
+            <PlusButton
+              sectionId={article.sections[0].section_id}
+              afterId={null}
+              topic={article.title}
+              onDone={onRefresh}
+            />
+          )}
+        </div>
       </div>
 
       {/* Scrollable body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px 40px" }}>
-        {article.sections.map((sec) => {
-          const { cleanNarrative, finalDisputed } = buildSection(sec);
+        {(() => {
+          const globalSeenPid = new Set<number>();
+          const globalSeenText = new Set<string>();
+          return article.sections.map((sec) => {
+          const { cleanNarrative, finalDisputed } = buildSection(sec, globalSeenPid, globalSeenText);
           return (
             <div key={sec.section_id} style={{ marginBottom: 20 }}>
               {sec.heading && (
@@ -391,6 +472,7 @@ export default function ArticleView({
                             borderBottom: isSel
                               ? `1.5px solid ${C.blue}`
                               : "none",
+                            fontWeight: onC ? 600 : 400,
                           }}
                         >
                           {s.text}
@@ -441,14 +523,43 @@ export default function ArticleView({
                           >
                             {editSug.original !== editSug.suggested ? (
                               <>
-                                <div style={{ fontSize: 12, marginBottom: 3 }}>
-                                  <b>Your version:</b>{" "}
-                                  <span style={{ color: C.gray }}>
-                                    {editSug.original}
+                                <div
+                                  onClick={() => setConfirmChoice("suggested")}
+                                  style={{
+                                    fontSize: 12,
+                                    marginBottom: 4,
+                                    padding: "4px 6px",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: confirmChoice === "suggested" ? "rgba(37,99,235,0.06)" : "transparent",
+                                    border: confirmChoice === "suggested" ? `1px solid ${C.blue}` : "1px solid transparent",
+                                  }}
+                                >
+                                  <span style={{ fontWeight: confirmChoice === "suggested" ? 700 : 400, color: confirmChoice === "suggested" ? C.text : C.muted }}>
+                                    {confirmChoice === "suggested" ? "✓ Selected: " : ""}Suggested:
+                                  </span>{" "}
+                                  <span style={{ color: confirmChoice === "suggested" ? C.text : C.muted }}>
+                                    {editSug.suggested}
                                   </span>
                                 </div>
-                                <div style={{ fontSize: 12, marginBottom: 5 }}>
-                                  <b>Suggested:</b> {editSug.suggested}
+                                <div
+                                  onClick={() => setConfirmChoice("original")}
+                                  style={{
+                                    fontSize: 12,
+                                    marginBottom: 5,
+                                    padding: "4px 6px",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    background: confirmChoice === "original" ? "rgba(37,99,235,0.06)" : "transparent",
+                                    border: confirmChoice === "original" ? `1px solid ${C.blue}` : "1px solid transparent",
+                                  }}
+                                >
+                                  <span style={{ fontWeight: confirmChoice === "original" ? 700 : 400, color: confirmChoice === "original" ? C.text : C.muted }}>
+                                    {confirmChoice === "original" ? "✓ Selected: " : ""}Your version:
+                                  </span>{" "}
+                                  <span style={{ color: confirmChoice === "original" ? C.text : C.muted }}>
+                                    {editSug.original}
+                                  </span>
                                 </div>
                               </>
                             ) : (
@@ -471,41 +582,24 @@ export default function ArticleView({
                               <StakeInput
                                 value={stakeAmt}
                                 onChange={setStakeAmt}
-                                onSubmit={() => doCommit(editSug!.suggested)}
+                                onSubmit={() => doCommit(confirmChoice === "original" ? editSug!.original : editSug!.suggested)}
                               />
                               <span style={{ fontSize: 10, color: C.muted }}>
                                 VSP (1 fee + stake)
                               </span>
                             </div>
                             <div style={{ display: "flex", gap: 5 }}>
-                              {editSug.original !== editSug.suggested ? (
-                                <>
-                                  <B
-                                    onClick={() => doCommit(editSug!.suggested)}
-                                    dis={busy}
-                                  >
-                                    {statusText || "Accept & create"}
-                                  </B>
-                                  <B
-                                    onClick={() => doCommit(editSug!.original)}
-                                    dis={busy}
-                                    sec
-                                  >
-                                    {statusText || "Keep original"}
-                                  </B>
-                                </>
-                              ) : (
-                                <B
-                                  onClick={() => doCommit(editSug!.suggested)}
-                                  dis={busy}
-                                >
-                                  {statusText || "Create & stake"}
-                                </B>
-                              )}
+                              <B
+                                onClick={() => doCommit(confirmChoice === "original" ? editSug!.original : editSug!.suggested)}
+                                dis={busy}
+                              >
+                                {statusText || "Create & stake"}
+                              </B>
                               <B
                                 onClick={() => {
                                   setEditSug(null);
                                   setEditPhase("edit");
+                                  setConfirmChoice("suggested");
                                 }}
                                 ghost
                               >
@@ -519,31 +613,7 @@ export default function ArticleView({
                 })}
               </div>
 
-              {/* End-of-section plus button — explicitly visible (not av-plus opacity) */}
-              {isConnected && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <PlusButton
-                    sectionId={sec.section_id}
-                    afterId={
-                      cleanNarrative.length > 0
-                        ? cleanNarrative[cleanNarrative.length - 1].sentence_id
-                        : null
-                    }
-                    topic={article.title}
-                    onDone={onRefresh}
-                  />
-                  <span style={{ fontSize: 10, color: C.muted }}>
-                    Add claim
-                  </span>
-                </div>
-              )}
+
 
               {/* Disputed claims (on-chain with VS < 0 only) */}
               {finalDisputed.length > 0 &&
@@ -635,7 +705,7 @@ export default function ArticleView({
                 })()}
             </div>
           );
-        })}
+        })})()}
       </div>
     </div>
   );

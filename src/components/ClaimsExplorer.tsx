@@ -1,6 +1,9 @@
+import { useAccount } from "wagmi";
 // frontend/src/components/ClaimsExplorer.tsx
 import { useState, useEffect, useMemo, useCallback } from "react";
+import Jazzicon from "./Jazzicon";
 import { InlineClaimCard } from "./ArticleView";
+import { PlusButton } from "./article";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -44,6 +47,7 @@ function vsColor(vs: number): string {
 }
 
 export default function ClaimsExplorer() {
+  const { isConnected } = useAccount();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,22 +154,43 @@ export default function ClaimsExplorer() {
   const fmtVS = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px", display: "flex", flexDirection: "column" as const, height: "100%", minHeight: 0 }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <h1
-          style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: "#1a1a2e",
-            margin: "0 0 4px",
-          }}
-        >
-          Claims Explorer
-        </h1>
-        <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
-          All on-chain claims with live metrics from the protocol.
-        </p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <h1
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: "#1a1a2e",
+                margin: "0 0 4px",
+              }}
+            >
+              Claims Explorer
+            </h1>
+            <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
+              All on-chain claims with live metrics from the protocol.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={fetchClaims}
+              style={{
+                background: "none",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
+                padding: "5px 12px",
+                fontSize: 12,
+                color: "#6b7280",
+                cursor: "pointer",
+              }}
+            >
+              ↻ Refresh
+            </button>
+            {isConnected && <PlusButton onDone={fetchClaims} />}
+          </div>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -290,9 +315,13 @@ export default function ClaimsExplorer() {
             border: "1px solid #e5e7eb",
             borderRadius: 8,
             overflow: "hidden",
+            display: "flex",
+            flexDirection: "column" as any,
+            flex: 1,
+            minHeight: 0,
           }}
         >
-          {/* Header row */}
+          {/* Header row — fixed */}
           <div
             style={{
               display: "flex",
@@ -335,7 +364,8 @@ export default function ClaimsExplorer() {
             ))}
           </div>
 
-          {/* Data rows */}
+          {/* Data rows — scrollable */}
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {sorted.map((c, i) => {
             const isExpanded = expandedId === c.post_id;
             return (
@@ -384,13 +414,16 @@ export default function ClaimsExplorer() {
                       padding: "6px",
                       fontSize: 12,
                       color: "#374151",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      overflow: isExpanded ? "visible" : "hidden",
+                      textOverflow: isExpanded ? "unset" : "ellipsis",
+                      whiteSpace: isExpanded ? "normal" : "nowrap",
                     }}
                     title={c.text}
                   >
-                    {isExpanded ? c.text : (c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text)}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {c.creator && <Jazzicon address={c.creator} size={14} />}
+                      {isExpanded ? c.text : (c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text)}
+                    </span>
                   </div>
                   {/* VS */}
                   <div
@@ -549,6 +582,7 @@ export default function ClaimsExplorer() {
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>

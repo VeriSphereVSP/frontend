@@ -8,3 +8,6 @@ export * from "./theme";
 export * from "./types";
 
 export { default as ClaimPickerModal } from "./ClaimPickerModal";
+
+export { default as TxProgress } from "./TxProgress";
+export { fireTxProgress } from "./TxProgress";

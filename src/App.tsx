@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import VSPMarketWidget from "./components/VSPMarketWidget";
 import ContentPanel from "./components/ContentPanel";
+import { TxProgress } from "./components/article";
 import ClaimsExplorer from "./components/ClaimsExplorer";
 import Portfolio from "./components/Portfolio";
 
@@ -11,14 +12,130 @@ type View = "explore" | "claims" | "portfolio";
 type Suggestion = { key: string; title: string; source: string };
 
 /* ── Landing Hero (shown when no topic is selected) ── */
+
+
+function TopicPills({ onSelect, currentTopic }: { onSelect: (t: string) => void; currentTopic: string }) {
+  const [topics, setTopics] = useState<{ key: string; title: string }[]>([]);
+  const API = (import.meta as any).env?.VITE_API_BASE || "/api";
+
+  useEffect(() => {
+    fetch(`${API}/topics/popular?limit=10`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.topics?.length > 0) {
+          const seen = new Set<string>();
+            setTopics(data.topics
+              .map((t: any) => ({ key: t.key, title: t.title || t.key }))
+              .filter((t: any) => { const k = t.title.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+            );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  if (topics.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 6,
+        padding: "6px 16px",
+        background: "rgba(255,255,255,0.95)",
+        borderBottom: "1px solid #e5e7eb",
+        flexWrap: "wrap",
+        alignItems: "center",
+        maxHeight: 64,
+        overflow: "hidden",
+      }}
+    >
+      <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0 }}>Topics:</span>
+      {topics.map((t) => {
+        const isCurrent = t.key === currentTopic.toLowerCase().replace(/\s+/g, "-");
+        return (
+          <button
+            key={t.key}
+            onClick={() => onSelect(t.title)}
+            style={{
+              padding: "3px 12px",
+              borderRadius: 14,
+              border: isCurrent ? "1px solid #2563eb" : "1px solid #e5e7eb",
+              background: isCurrent ? "#eff6ff" : "#fff",
+              fontSize: 12,
+              cursor: "pointer",
+              color: isCurrent ? "#2563eb" : "#374151",
+              fontWeight: isCurrent ? 600 : 400,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              transition: "all 0.12s",
+            }}
+          >
+            {t.title}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RefreshBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Refresh"
+      style={{
+        background: "none",
+        border: "1px solid #e5e7eb",
+        borderRadius: 6,
+        padding: "4px 10px",
+        cursor: "pointer",
+        fontSize: 13,
+        color: "#6b7280",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        transition: "all 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "#2563eb";
+        e.currentTarget.style.color = "#2563eb";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "#e5e7eb";
+        e.currentTarget.style.color = "#6b7280";
+      }}
+    >
+      ↻ Refresh
+    </button>
+  );
+}
+
 function LandingHero({ onSubmit }: { onSubmit: (q: string) => void }) {
   const [input, setInput] = useState("");
-  const examples = [
+  const [examples, setExamples] = useState([
     { label: "Earth", icon: "🌍" },
     { label: "Bitcoin", icon: "₿" },
     { label: "Quantum Computing", icon: "⚛" },
     { label: "Climate Change", icon: "🌡" },
-  ];
+  ]);
+
+  // Fetch popular topics (replace defaults if available)
+  useEffect(() => {
+    const API = (import.meta as any).env?.VITE_API_BASE || "/api";
+    fetch(`${API}/topics/popular?limit=10`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.topics?.length > 0) {
+          const seen2 = new Set<string>();
+          setExamples(
+            data.topics
+              .map((t: any) => ({ label: t.title || t.key, icon: "" }))
+              .filter((t: any) => { const k = t.label.toLowerCase(); if (seen2.has(k)) return false; seen2.add(k); return true; }),
+          );
+        }
+      })
+      .catch(() => {/* keep defaults */});
+  }, []);
 
   return (
     <div
@@ -537,11 +654,21 @@ export default function App() {
       {/* Content */}
       <main
         className="watermark-bg"
-        style={{ flex: 1, overflowY: "auto", padding: "0" }}
+        style={{
+          flex: 1,
+          overflowY: (showingArticle || view === "portfolio" || view === "claims") ? "hidden" : "auto",
+          padding: "0",
+          display: (showingArticle || view === "portfolio" || view === "claims") ? "flex" : "block",
+          flexDirection: "column" as const,
+          minHeight: 0,
+        }}
       >
         <div
           className="container"
-          style={{ padding: view === "explore" && !topic ? 0 : "16px" }}
+          style={{
+            padding: showingArticle ? 0 : (view === "explore" && !topic ? 0 : "16px"),
+            ...((showingArticle || view === "portfolio" || view === "claims") ? { flex: 1, display: "flex", flexDirection: "column" as const, minHeight: 0, overflow: "hidden" } : {}),
+          }}
         >
           {/* Landing page — when no topic */}
           {view === "explore" && !topic && (
@@ -549,23 +676,31 @@ export default function App() {
           )}
 
           {/* Article view — when topic selected */}
-          {view === "explore" && topic && <ContentPanel topic={topic} />}
+          {view === "explore" && topic && (
+            <>
+              <TopicPills onSelect={(t) => submit(t)} currentTopic={topic} />
+              <ContentPanel topic={topic} />
+            </>
+          )}
 
           {/* Claims explorer */}
-          {view === "claims" && <ClaimsExplorer />}
+          {view === "claims" && <div style={{ flex: 1, display: "flex", flexDirection: "column" as const, minHeight: 0, overflow: "hidden" }}><ClaimsExplorer /></div>}
 
           {/* Portfolio */}
-          {view === "portfolio" && (
+          {view === "portfolio" && (<div style={{ flex: 1, display: "flex", flexDirection: "column" as const, minHeight: 0, overflow: "hidden" }}>
             <Portfolio onBack={() => setView("explore")} />
-          )}
+          </div>)}
         </div>
       </main>
 
+      <TxProgress />
+
       {/* Footer */}
       <footer className="footer" style={{ flexShrink: 0 }}>
-        <a href="https://github.com/VeriSphereVSP/docs/blob/main/whitepaper.md" target="_blank" rel="noopener noreferrer">Whitepaper</a>
-        <a href="https://github.com/VeriSphereVSP/docs/blob/main/guide.md" target="_blank" rel="noopener noreferrer">How to Play</a>
-        <a href="https://github.com/VeriSphereVSP/docs" target="_blank" rel="noopener noreferrer">About</a>
+        <a href="/docs/viewer.html?file=whitepaper.md">Whitepaper</a>
+        <a href="/docs/viewer.html?file=guide.md">How to Play</a>
+        <a href="/docs/viewer.html?file=about.md">About</a>
+        <a href="/docs/viewer.html?file=tos.md">Terms of Service</a>
         <span>© {new Date().getFullYear()} Verisphere</span>
       </footer>
     </div>

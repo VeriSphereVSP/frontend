@@ -5,7 +5,10 @@ import { useCreateClaim, useStake, fetchBalance } from "@verisphere/protocol";
 import { C } from "./theme";
 import B from "./MiniButton";
 import { friendlyError, fireToast } from "../../utils/errorMessages";
+import { fireTxProgress } from "./TxProgress";
 import StakeInput from "./StakeInput";
+
+const MAX_CLAIM_LENGTH = 500; // Must match PostRegistry.MAX_CLAIM_LENGTH
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -15,14 +18,15 @@ export default function PlusBtn({
   topic,
   onDone,
 }: {
-  sectionId: number;
-  afterId: number | null;
-  topic: string;
+  sectionId?: number | null;
+  afterId?: number | null;
+  topic?: string;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [txt, setTxt] = useState("");
   const [stakeAmt, setStakeAmt] = useState("1");
+  const [confirmChoice, setConfirmChoice] = useState<"suggested" | "original">("suggested");
   const [phase, setPhase] = useState<
     "input" | "cleanup" | "confirm" | "creating" | "staking"
   >("input");
@@ -58,37 +62,88 @@ export default function PlusBtn({
 
   const cleanup = async () => {
     if (!txt.trim()) return;
+    if (new TextEncoder().encode(txt.trim()).length > MAX_CLAIM_LENGTH) {
+      setError(`Claim too long (${new TextEncoder().encode(txt.trim()).length} bytes, max ${MAX_CLAIM_LENGTH}). Please shorten it.`);
+      return;
+    }
     setPhase("cleanup");
     setError(null);
+
+    // Moderation gate — hard block before anything else
+    try {
+      const mod = await fetch(`${API}/moderate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: txt.trim() }),
+      }).then((r) => r.json());
+      if (!mod.allowed) {
+        setError(mod.reason || "This content violates community standards and cannot be posted.");
+        setPhase("input");
+        return;
+      }
+    } catch {
+      // If moderation check fails, proceed cautiously (relay will catch it)
+    }
+
     try {
       const d = await fetch(`${API}/article/sentence/cleanup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: txt.trim(), topic }),
+        body: JSON.stringify({ text: txt.trim(), topic: topic || "" }),
       }).then((r) => r.json());
       if (
         d.suggested &&
         d.suggested.toLowerCase() !== d.original.toLowerCase()
       ) {
+        // Check if the "suggested" text is actually an LLM refusal
+        const refusalPatterns = ["can't help", "cannot help", "won't process", "violates", "not appropriate", "I'm unable"];
+        const isRefusal = refusalPatterns.some((p) => d.suggested.toLowerCase().includes(p));
+        if (isRefusal) {
+          setError("This content violates community standards and cannot be posted.");
+          setPhase("input");
+          return;
+        }
         setSug(d);
+        setConfirmChoice("suggested");
         setPhase("confirm");
       } else {
-        await commit(txt.trim());
+        // No changes suggested — still show confirm so user can set stake
+        setSug({ original: txt.trim(), suggested: txt.trim() });
+        setConfirmChoice("suggested");
+        setPhase("confirm");
       }
     } catch {
-      await commit(txt.trim());
+      // Cleanup failed — still show confirm with original text
+      setSug({ original: txt.trim(), suggested: txt.trim() });
+      setConfirmChoice("suggested");
+      setPhase("confirm");
     }
   };
 
   const commit = async (final: string) => {
+    if (new TextEncoder().encode(final).length > MAX_CLAIM_LENGTH) {
+      setError(`Claim too long (${new TextEncoder().encode(final).length} bytes, max ${MAX_CLAIM_LENGTH}). Please shorten it.`);
+      setPhase("input");
+      return;
+    }
     setPhase("creating");
     setError(null);
+
+    const stakeVal = parseFloat(stakeAmt);
+    const steps = [
+      { label: "Create claim on-chain", status: "pending" as const },
+      ...(stakeVal !== 0 ? [{ label: `Stake ${Math.abs(stakeVal)} VSP ${stakeVal > 0 ? "support" : "challenge"}`, status: "pending" as const }] : []),
+      { label: "Insert into article", status: "pending" as const },
+    ];
+    fireTxProgress({ action: "start", title: "Creating Claim", steps });
+    fireTxProgress({ action: "step", stepIndex: 0 });
 
     let postId: number | null = null;
     try {
       const result = await createClaim(final);
+      console.log("createClaim result:", result);
       postId = result?.post_id ?? null;
-      if (postId == null || postId < 0) {
+        if (postId == null) {
         const check = await fetch(
           `${API}/claims/check-onchain?text=${encodeURIComponent(final)}`,
         ).then((r) => r.json());
@@ -97,29 +152,32 @@ export default function PlusBtn({
     } catch (e: any) {
       setError(friendlyError(e));
       fireToast(friendlyError(e), "error");
+      fireTxProgress({ action: "error", error: friendlyError(e) });
       setPhase("input");
       return;
     }
 
-    if (postId == null || postId < 0) {
-      setError("Claim creation failed. Do you have enough VSP?");
+      if (postId == null) {
+      setError("Claim creation failed — check VSP balance and try again. Post ID: " + String(postId));
       setPhase("input");
       return;
     }
 
     // Stake on the new claim
     const amt = parseFloat(stakeAmt);
-    if (amt > 0) {
+    if (amt !== 0) {
       setPhase("staking");
+      const side = amt > 0 ? "support" : "challenge";
+      fireTxProgress({ action: "step", stepIndex: 1 });
       try {
-        await stake(postId, "support", amt);
+        await stake(postId, side as "support" | "challenge", Math.abs(amt));
       } catch (e: any) {
         console.warn("Initial stake failed (claim created):", e);
       }
     }
 
-    // Insert into article DB
-    try {
+    // Insert into article DB (skip if no section context)
+    if (sectionId) try {
       const ins = await fetch(`${API}/article/sentence/insert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -147,8 +205,24 @@ export default function PlusBtn({
       console.warn("Article insert failed (claim is on-chain):", e);
     }
 
+    // Auto-detect topic for standalone claims (no article context)
+    if (!sectionId && postId != null) {
+      try {
+        await fetch(`${API}/claims/detect-topic`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ claim_text: final, post_id: postId }),
+        });
+      } catch (e) {
+        console.debug("Topic detection failed (non-fatal):", e);
+      }
+    }
+
     window.dispatchEvent(new Event("verisphere:data-changed"));
-    fireToast("Claim created and staked!", "success");
+    const insertStep = parseFloat(stakeAmt) !== 0 ? 2 : 1;
+    fireTxProgress({ action: "step", stepIndex: insertStep });
+    fireToast("Claim created!", "success");
+    fireTxProgress({ action: "done" });
     setTxt("");
     setStakeAmt("1");
     setSug(null);
@@ -171,7 +245,6 @@ export default function PlusBtn({
   if (!open) {
     return (
       <span
-        className="av-plus"
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
@@ -180,21 +253,22 @@ export default function PlusBtn({
         style={{
           display: "inline-flex",
           alignItems: "center",
-          justifyContent: "center",
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
+          gap: 4,
+          padding: "3px 10px",
+          borderRadius: 4,
           background: C.blue,
           color: C.white,
-          fontSize: 10,
-          fontWeight: 700,
-          margin: "0 2px",
-          lineHeight: 1,
+          fontSize: 11,
+          fontWeight: 600,
           userSelect: "none",
           cursor: "pointer",
+          opacity: 0.85,
+          transition: "opacity 0.12s",
         }}
+        onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+        onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.85")}
       >
-        +
+        + Add claim
       </span>
     );
   }
@@ -205,10 +279,12 @@ export default function PlusBtn({
       style={{
         display: "block",
         margin: "6px 0",
-        padding: "8px 10px",
+        padding: "10px 14px",
         background: C.bbg,
         borderRadius: 6,
         border: `1px solid ${C.blue}`,
+        minWidth: 450,
+        maxWidth: 700,
       }}
     >
       {!hasBalance ? (
@@ -230,13 +306,53 @@ export default function PlusBtn({
         </div>
       ) : phase === "confirm" && sug ? (
         <div>
-          <div style={{ fontSize: 12, marginBottom: 3 }}>
-            <b>Your version:</b>{" "}
-            <span style={{ color: C.gray }}>{sug.original}</span>
-          </div>
-          <div style={{ fontSize: 12, marginBottom: 5 }}>
-            <b>Suggested:</b> {sug.suggested}
-          </div>
+          {/* Version selection */}
+          {sug.original.toLowerCase() !== sug.suggested.toLowerCase() ? (
+            <>
+              <div
+                onClick={() => setConfirmChoice("suggested")}
+                style={{
+                  fontSize: 12,
+                  marginBottom: 4,
+                  padding: "4px 6px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: confirmChoice === "suggested" ? "rgba(37,99,235,0.06)" : "transparent",
+                  border: confirmChoice === "suggested" ? `1px solid ${C.blue}` : "1px solid transparent",
+                }}
+              >
+                <span style={{ fontWeight: confirmChoice === "suggested" ? 700 : 400, color: confirmChoice === "suggested" ? C.text : C.muted }}>
+                  {confirmChoice === "suggested" ? "✓ Selected: " : ""}Suggested:
+                </span>{" "}
+                <span style={{ color: confirmChoice === "suggested" ? C.text : C.muted }}>
+                  {sug.suggested}
+                </span>
+              </div>
+              <div
+                onClick={() => setConfirmChoice("original")}
+                style={{
+                  fontSize: 12,
+                  marginBottom: 5,
+                  padding: "4px 6px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  background: confirmChoice === "original" ? "rgba(37,99,235,0.06)" : "transparent",
+                  border: confirmChoice === "original" ? `1px solid ${C.blue}` : "1px solid transparent",
+                }}
+              >
+                <span style={{ fontWeight: confirmChoice === "original" ? 700 : 400, color: confirmChoice === "original" ? C.text : C.muted }}>
+                  {confirmChoice === "original" ? "✓ Selected: " : ""}Your version:
+                </span>{" "}
+                <span style={{ color: confirmChoice === "original" ? C.text : C.muted }}>
+                  {sug.original}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, marginBottom: 5 }}>
+              <b>Create claim:</b> {sug.suggested}
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -249,16 +365,13 @@ export default function PlusBtn({
             <StakeInput
               value={stakeAmt}
               onChange={setStakeAmt}
-              onSubmit={() => commit(sug.suggested)}
+              onSubmit={() => commit(confirmChoice === "original" ? sug.original : sug.suggested)}
             />
             <span style={{ fontSize: 10, color: C.muted }}>VSP support</span>
           </div>
           <div style={{ display: "flex", gap: 5 }}>
-            <B onClick={() => commit(sug.suggested)} dis={busy}>
-              {statusText || "Accept & create"}
-            </B>
-            <B onClick={() => commit(sug.original)} dis={busy} sec>
-              {statusText || "Keep original"}
+            <B onClick={() => commit(confirmChoice === "original" ? sug.original : sug.suggested)} dis={busy}>
+              {statusText || "Create & stake"}
             </B>
             <B
               onClick={() => {
@@ -289,10 +402,11 @@ export default function PlusBtn({
                 setTxt("");
               }
             }}
-            rows={2}
+            rows={4}
             style={{
               width: "100%",
-              padding: "3px 5px",
+              minWidth: 600,
+              padding: "6px 8px",
               fontSize: 14,
               lineHeight: 1.5,
               border: `1px solid ${C.gb}`,
@@ -321,7 +435,7 @@ export default function PlusBtn({
               onSubmit={cleanup}
             />
             <span style={{ fontSize: 10, color: C.muted }}>VSP stake</span>
-            <span style={{ fontSize: 9, color: txt.length > 450 ? "#ef4444" : C.muted }}>{txt.length}/500</span>
+            <span style={{ fontSize: 9, color: new TextEncoder().encode(txt).length > MAX_CLAIM_LENGTH - 50 ? "#ef4444" : C.muted }}>{new TextEncoder().encode(txt).length}/{MAX_CLAIM_LENGTH} bytes</span>
             <B
               onClick={() => {
                 setOpen(false);

@@ -1,0 +1,215 @@
+# How to Play Verisphere
+
+## What is Verisphere?
+
+Verisphere is a truth-staking protocol where you back factual claims with real VSP tokens. If you're right, you earn. If you're wrong, you lose. The community decides what's credible through economic consensus — not votes, not likes, not algorithms.
+
+---
+
+## Setting Up
+
+### 1. Install MetaMask
+
+MetaMask is a browser wallet that lets you interact with Verisphere. If you already have MetaMask installed, skip to step 2.
+
+1. Go to [metamask.io](https://metamask.io) and click **Download**.
+2. Install the extension for your browser (Chrome, Firefox, Brave, or Edge).
+3. Follow the setup wizard to create a new wallet.
+4. **Write down your seed phrase** and store it somewhere safe. This is the only way to recover your wallet. Never share it with anyone.
+
+### 2. Add the Avalanche Network
+
+Verisphere runs on Avalanche C-Chain. MetaMask needs to know about this network.
+
+1. Open MetaMask and click the network dropdown at the top (it says "Ethereum Mainnet" by default).
+2. Click **Add network** → **Add a network manually**.
+3. Enter the following details:
+
+| Field | Value |
+|-------|-------|
+| Network Name | Avalanche C-Chain |
+| RPC URL | https://api.avax.network/ext/bc/C/rpc |
+| Chain ID | 43114 |
+| Currency Symbol | AVAX |
+| Block Explorer | https://snowtrace.io |
+
+4. Click **Save** and switch to the Avalanche C-Chain network.
+
+Alternatively, visit [chainlist.org](https://chainlist.org/?search=avalanche), find "Avalanche C-Chain", and click **Add to MetaMask** for automatic setup.
+
+### 3. Get USDC on Avalanche
+
+You need USDC (a stablecoin pegged to the US dollar) on Avalanche to buy VSP tokens. There are several ways to get USDC on Avalanche:
+
+**Option A: Buy directly on an exchange that supports Avalanche withdrawals**
+
+1. Create an account on an exchange like Coinbase, Kraken, or Binance.
+2. Purchase USDC.
+3. Withdraw USDC to your MetaMask wallet address, selecting **Avalanche C-Chain** as the withdrawal network. This is important — if you select Ethereum or another network, your funds will not appear in Verisphere.
+4. Your MetaMask wallet address is the string starting with `0x` shown at the top of MetaMask. Click it to copy.
+
+**Option B: Bridge from Ethereum**
+
+If you already have USDC on Ethereum:
+
+1. Go to [core.app/bridge](https://core.app/bridge/) (Avalanche's official bridge).
+2. Connect your MetaMask wallet.
+3. Select USDC, choose "From Ethereum" → "To Avalanche", enter the amount, and confirm.
+
+**Option C: Buy AVAX and swap**
+
+1. Buy AVAX on any exchange and withdraw to your MetaMask wallet on Avalanche C-Chain.
+2. Use a decentralized exchange like [Trader Joe](https://traderjoexyz.com) or [Pangolin](https://pangolin.exchange) to swap AVAX for USDC.
+
+### 4. Connect to Verisphere
+
+1. Go to [verisphere.co](https://verisphere.co).
+2. Click **Connect Wallet** in the top right.
+3. MetaMask will pop up asking you to connect — approve it.
+4. You should see your wallet address and USDC balance in the header bar.
+
+You don't need AVAX for gas — Verisphere pays all transaction fees for you.
+
+### 5. Buy VSP Tokens
+
+1. Click **Buy** in the wallet bar.
+2. Enter the amount of USDC you want to spend.
+3. Confirm the transaction in MetaMask.
+4. VSP tokens appear in your balance immediately.
+
+VSP is the only token you need to play. You can sell VSP back to USDC at any time by clicking **Sell**.
+
+---
+
+## Playing the Game
+
+### Explore a Topic
+
+Type any topic in the search bar — "climate change", "bitcoin", "quantum computing" — and Verisphere generates an article with factual claims. Each claim can be staked, challenged, and linked to evidence.
+
+### Claims
+
+A **claim** is a factual assertion, like "Earth is a spheroid" or "The greenhouse effect is caused by atmospheric gases." Claims live on-chain permanently. Creating a claim costs **1 VSP** (burned as a fee) plus an initial stake.
+
+### Staking
+
+Every claim has two sides: **support** and **challenge**.
+
+- **Positive stake** (+1, +5, etc.) = stake in **support** (you believe the claim is true)
+- **Negative stake** (-1, -5, etc.) = stake in **challenge** (you believe the claim is false)
+
+Your stake earns or loses value over time based on the claim's **Verity Score (VS)**.
+
+### Verity Score (VS)
+
+The VS reflects economic consensus:
+
+- **VS > 0%** → More support than challenge. Supporters earn, challengers lose.
+- **VS < 0%** → More challenge than support. Challengers earn, supporters lose.
+- **VS = 0%** → Contested or inactive. Nobody earns or loses.
+
+The VS is shown as a colored number next to each claim: green for positive, red for negative.
+
+### Evidence Links
+
+Claims don't exist in isolation. You can link one claim to another as **support** or **challenge**:
+
+- "Earth is a spheroid" **challenges** "Earth is flat" → If the challenger is credible (VS > 0), it pushes the target's VS down.
+- "CO2 absorbs infrared" **supports** "Greenhouse effect is real" → Credible support pushes the target's VS up.
+
+Links are also stakeable. Staking on a link means "I believe this evidence relationship is valid."
+
+**Key rule: Only credible claims influence others.** If a claim's VS drops to zero or below, all its outgoing links go silent — it can't affect other claims until it regains positive VS through direct support.
+
+---
+
+## How to Win
+
+### Strategy 1: Back the Truth Early
+
+Find claims that are true but undervalued. Stake support early — you get the best queue position, which means the highest earning rate. As more people agree and stake support, the VS rises, and your position earns faster.
+
+### Strategy 2: Challenge Misinformation
+
+Find claims that are false but have support. Stake challenge. If you're right and the community follows, the VS goes negative, and challengers earn while supporters lose their stake.
+
+### Strategy 3: Build Evidence
+
+Instead of staking directly on a crowded claim, create or stake on **evidence links**. A well-staked challenge link from a credible source can flip a claim's VS — and your link stake earns from a smaller, less competitive pool.
+
+### Strategy 4: Defend Your Positions
+
+If someone challenges a claim you support, you can:
+- Add more direct support stake
+- Challenge the challenger's claim (reduce its VS, reducing its influence)
+- Challenge the evidence link itself (silence it)
+
+---
+
+## Earning Rate (APR)
+
+Your earning rate depends on four factors:
+
+1. **Truth Pressure** — How strong the VS is. A VS of 100% means maximum earning pressure. VS of 0% means no earnings.
+2. **Post Size** — Larger total stakes face stronger pressure. Your claim's total stake relative to the system-wide maximum.
+3. **Queue Position** — Earlier stakers earn more. The queue is divided into tranches; the earliest stakers earn up to 10× more than the latest.
+4. **Rate Bounds** — Earning rates scale from 0% (at VS = 0) up to a maximum of 100% APR.
+
+Winners (your side aligns with the VS direction) earn at this rate. Losers (opposing side) lose at this rate.
+
+---
+
+## Key Concepts
+
+### Posting Fee
+Creating a claim or link costs **1 VSP**, which is permanently burned. This prevents spam and gives every new claim an initial positive VS.
+
+### Activity Threshold
+A claim needs at least 1 VSP total stake to be "active" and influence other claims through links.
+
+### Credibility Gate
+Only claims with VS > 0 can influence other claims through evidence links. A discredited claim (VS ≤ 0) is inert in the evidence graph until rehabilitated.
+
+### Conservation of Influence
+A claim's influence is distributed — not duplicated — across its outgoing links. Creating more links from the same claim dilutes each link's share.
+
+---
+
+## Quick Reference
+
+| Action | Cost | What it does |
+|--------|------|-------------|
+| Create claim | 1 VSP fee + initial stake | Publishes a factual assertion on-chain |
+| Create link | 1 VSP fee + initial stake | Connects two claims as support or challenge |
+| Stake support | Any amount | Backs a claim as true (earns if VS > 0) |
+| Stake challenge | Any amount | Backs a claim as false (earns if VS < 0) |
+| Withdraw | Free | Removes your stake at any time |
+| Buy VSP | USDC | Purchase tokens to play |
+| Sell VSP | Free | Convert tokens back to USDC |
+
+---
+
+## Tips
+
+- **Start small.** Stake 1 VSP to learn how the system works before committing more.
+- **Check the evidence graph.** A claim might look safe but have a strong incoming challenge link that's about to flip its VS.
+- **Queue position matters.** Being first to stake on a new claim gives you the best earning rate.
+- **Links are cheaper plays.** Staking on a link lets you influence a claim's VS without competing in a large direct stake pool.
+- **Watch the Portfolio.** Your Portfolio page shows real-time APR, position status, and the factors behind your earnings.
+- **VS = 0 is not safe.** A claim with VS = 0 isn't earning anything, and one well-funded challenge can push it negative quickly.
+
+---
+
+## Troubleshooting
+
+### MetaMask doesn't show Avalanche
+Make sure you've added the Avalanche C-Chain network manually (see step 2 above) or used chainlist.org.
+
+### My USDC isn't showing up
+Confirm that you withdrew USDC on the **Avalanche C-Chain** network, not Ethereum or another chain. Also check that you're looking at the correct MetaMask account and network.
+
+### Transaction is stuck or pending
+Verisphere handles gas fees for you through meta-transactions. If a transaction seems stuck, try refreshing the page and resubmitting. Your wallet won't be double-charged.
+
+### I can't find my position
+Check the **Portfolio** tab. All your active stakes appear there with their current VS, APR, and status.

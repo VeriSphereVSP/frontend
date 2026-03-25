@@ -8,8 +8,11 @@ import { C, n, fmt, vc } from "./theme";
 import type { Sentence, Edge } from "./types";
 import B from "./MiniButton";
 import { friendlyError, fireToast } from "../../utils/errorMessages";
+import { fireTxProgress } from "./TxProgress";
 import StakeInput from "./StakeInput";
 import ClaimPickerModal from "./ClaimPickerModal";
+
+const MAX_CLAIM_LENGTH = 500;
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -175,9 +178,36 @@ function LinkStakeWidget({
         }}
       >
         {isConnected && (
-          <span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             Your position:{" "}
             <span style={{ color: posColor, fontWeight: 600 }}>{posLabel}</span>
+            {(userSup > 0.001 || userChal > 0.001) && (
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  fireTxProgress({ action: "start", title: "Liquidating Link", steps: [
+                    { label: "Withdraw all stake", status: "pending" },
+                  ]});
+                  fireTxProgress({ action: "step", stepIndex: 0 });
+                  try {
+                    if (userSup > 0) await withdraw(linkPostId, "support", userSup);
+                    if (userChal > 0) await withdraw(linkPostId, "challenge", userChal);
+                    fireTxProgress({ action: "done" });
+                    onDone();
+                  } catch (err: any) {
+                    fireTxProgress({ action: "error", error: "Liquidate failed: " + (err.message || err) });
+                  }
+                }}
+                style={{
+                  padding: "1px 6px", fontSize: 9, fontWeight: 600,
+                  border: "1px solid #fca5a5", borderRadius: 3,
+                  background: "#fef2f2", color: "#dc2626", cursor: "pointer",
+                }}
+                title={`Withdraw all: ${userSup > 0 ? userSup.toFixed(2) + " support" : ""}${userSup > 0 && userChal > 0 ? " + " : ""}${userChal > 0 ? userChal.toFixed(2) + " challenge" : ""}`}
+              >
+                Liquidate
+              </button>
+            )}
           </span>
         )}
         <span style={{ color: C.muted }}>·</span>
@@ -555,6 +585,7 @@ function LinkPanel({
               {linking ? "…" : "Link & stake"}
             </B>
           </div>
+
           {showPicker && (
             <ClaimPickerModal
               excludePostId={pid}
@@ -757,6 +788,12 @@ export default function InlineClaimCard({
     if (!val || val === 0) return;
     const absVal = Math.abs(val);
     setGoError(null);
+    const sideName = val > 0 ? "support" : "challenge";
+    fireTxProgress({
+      action: "start",
+      title: "Staking",
+      steps: [{ label: `Stake ${absVal} VSP ${sideName}`, status: "active" as const }],
+    });
     try {
       if (val > 0) {
         if (userChal > 0) {
@@ -782,6 +819,10 @@ export default function InlineClaimCard({
     }
     setAmt("");
     fireToast("Stake updated successfully", "success");
+    fireTxProgress({ action: "done" });
+    // Immediate refresh
+    setTimeout(() => onRefresh(), 1000);
+    setTimeout(() => onRefresh(), 5000);
     if (postId) await triggerReindex(postId, address);
     onRefresh();
     window.dispatchEvent(new Event("verisphere:data-changed"));
@@ -805,6 +846,21 @@ export default function InlineClaimCard({
     if (!sentenceId) return;
     setCreatePhase("creating");
     setGoError(null);
+    const stakeVal = parseFloat(initStake);
+    const steps = [
+      { label: "Create claim on-chain", status: "pending" as const },
+      ...(stakeVal !== 0 ? [{ label: `Stake ${Math.abs(stakeVal)} VSP ${stakeVal > 0 ? "support" : "challenge"}`, status: "pending" as const }] : []),
+      { label: "Update article", status: "pending" as const },
+    ];
+    fireTxProgress({ action: "start", title: "Creating Claim", steps });
+    // Length check
+    if (new TextEncoder().encode(text).length > MAX_CLAIM_LENGTH) {
+      setGoError(`Claim too long (${new TextEncoder().encode(text).length} bytes, max ${MAX_CLAIM_LENGTH}).`);
+      fireTxProgress({ action: "error", error: "Claim too long" });
+      setCreatePhase("idle");
+      return;
+    }
+    fireTxProgress({ action: "step", stepIndex: 0 });
     try {
       const result = await createClaim(text);
       let newPid = result?.post_id ?? null;
@@ -830,17 +886,26 @@ export default function InlineClaimCard({
         } catch {}
         // Initial stake
         const amt = parseFloat(initStake);
-        if (amt > 0) {
+        if (amt !== 0) {
           setCreatePhase("staking");
+          const side = amt > 0 ? "support" : "challenge";
+          const absAmt = Math.abs(amt);
+          fireTxProgress({ action: "step", stepIndex: 1 });
           try {
-            await stake(newPid, "support", amt);
+            await stake(newPid, side as "support" | "challenge", absAmt);
           } catch (e: any) {
             console.warn("Initial stake failed (claim created):", e);
           }
         }
         window.dispatchEvent(new Event("verisphere:data-changed"));
-        fireToast("Claim created and staked!", "success");
-        onRefresh();
+        // Step: update article
+        const stakeStepOffset = parseFloat(initStake) !== 0 ? 2 : 1;
+        fireTxProgress({ action: "step", stepIndex: stakeStepOffset });
+        fireToast("Claim created!", "success");
+        // Immediate refresh — don't wait for indexer
+        setTimeout(() => onRefresh(), 1000);
+        setTimeout(() => onRefresh(), 5000);
+        fireTxProgress({ action: "done" });
       } else {
         setGoError("Claim creation failed");
         setTimeout(onRefresh, 3000);
@@ -849,6 +914,7 @@ export default function InlineClaimCard({
       const msg = friendlyError(e);
       setGoError(msg);
       fireToast(msg, "error");
+      fireTxProgress({ action: "error", error: msg });
     } finally {
       setCreatePhase("idle");
     }
@@ -1016,11 +1082,44 @@ export default function InlineClaimCard({
               }}
             >
               {isConnected && (
-                <span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                   Your position:{" "}
                   <span style={{ color: posColor, fontWeight: 600 }}>
                     {posLabel}
                   </span>
+                  {(userSup > 0.001 || userChal > 0.001) && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        fireTxProgress({ action: "start", title: "Liquidating Position", steps: [
+                          { label: "Withdraw all stake", status: "pending" },
+                        ]});
+                        fireTxProgress({ action: "step", stepIndex: 0 });
+                        try {
+                          if (userSup > 0) await withdraw(pid, "support", userSup);
+                          if (userChal > 0) await withdraw(pid, "challenge", userChal);
+                          fireTxProgress({ action: "done" });
+                          onRefresh();
+                        } catch (err: any) {
+                          fireTxProgress({ action: "error", error: "Liquidate failed: " + (err.message || err) });
+                        }
+                      }}
+                      style={{
+                        padding: "1px 6px",
+                        fontSize: 9,
+                        fontWeight: 600,
+                        border: "1px solid #fca5a5",
+                        borderRadius: 3,
+                        background: "#fef2f2",
+                        color: "#dc2626",
+                        cursor: "pointer",
+                        lineHeight: "14px",
+                      }}
+                      title={`Withdraw all: ${userSup > 0 ? userSup.toFixed(2) + " support" : ""}${userSup > 0 && userChal > 0 ? " + " : ""}${userChal > 0 ? userChal.toFixed(2) + " challenge" : ""}`}
+                    >
+                      Liquidate
+                    </button>
+                  )}
                 </span>
               )}
               <span style={{ color: C.muted }}>·</span>
@@ -1069,7 +1168,7 @@ export default function InlineClaimCard({
               </span>
             ) : (
               <>
-                <span style={{ color: C.muted }}>Not on chain</span>
+                <span style={{ color: C.muted, fontWeight: 600 }}>Not on chain</span>
                 {isConnected &&
                   sentenceId &&
                   (needsApproval ? (
@@ -1081,18 +1180,28 @@ export default function InlineClaimCard({
                         onChange={setInitStake}
                         onSubmit={registerOnChain}
                       />
-                      <span style={{ fontSize: 9, color: C.muted }}>
-                        VSP stake
+                      <span style={{ fontSize: 9 }}>
+                        {(() => {
+                          const v = parseFloat(initStake);
+                          if (isNaN(v) || v === 0) return <span style={{ color: C.muted }}>no initial stake</span>;
+                          if (v > 0) return <span style={{ color: C.green, fontWeight: 600 }}>VSP support</span>;
+                          return <span style={{ color: C.red, fontWeight: 600 }}>VSP challenge</span>;
+                        })()}
                       </span>
                       <B
                         onClick={registerOnChain}
                         dis={txing || createPhase !== "idle"}
                       >
                         {createPhase === "creating"
-                          ? "Creating…"
+                          ? "Creating claim…"
                           : createPhase === "staking"
                             ? "Staking…"
-                            : "Create & stake (1 VSP fee)"}
+                            : (() => {
+                                const v = parseFloat(initStake);
+                                if (isNaN(v) || v === 0) return "Create only (1 VSP fee)";
+                                if (v > 0) return `Create + ${Math.abs(v)} support`;
+                                return `Create + ${Math.abs(v)} challenge`;
+                              })()}
                       </B>
                     </>
                   ))}

@@ -11,10 +11,18 @@ type MMQuote = {
 };
 
 type FillPreview = {
-  side: string;
+  side?: string;
+  mode?: string;
   qty_vsp: number;
-  total_usdc: number;
-  avg_price_usd: number;
+  total_usdc?: number;
+  subtotal_usdc?: number;
+  gross_usdc?: number;
+  net_usdc?: number;
+  fee_vsp?: number;
+  fee_usdc?: number;
+  avg_price?: number;
+  avg_price_usd?: number;
+  breakdown?: string;
 } | null;
 
 // EIP-2612 permit domain & types for signing
@@ -48,6 +56,7 @@ export default function TradeModal({
   const { chain, isConnected, address } = useAccount();
   const { data: walletClient } = useWalletClient();
   const [amount, setAmount] = useState("");
+  const [denom, setDenom] = useState<"vsp" | "usdc">("vsp");
   const [loading, setLoading] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +109,7 @@ export default function TradeModal({
     setPreview(null);
     setError(null);
     setStatus(null);
-  }, [amount, side]);
+  }, [amount, side, denom]);
 
   async function handlePreview() {
     if (numeric <= 0) {
@@ -110,11 +119,15 @@ export default function TradeModal({
     try {
       setPreviewing(true);
       setError(null);
-      const res = await fetch("/api/mm/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ side, qty_vsp: numeric }),
-      });
+      let url: string;
+      if (side === "buy") {
+        url = denom === "vsp"
+          ? `/api/mm/preview-buy?qty_vsp=${numeric}`
+          : `/api/mm/preview-buy?usdc_amount=${numeric}`;
+      } else {
+        url = `/api/mm/preview-sell?qty_vsp=${denom === "vsp" ? numeric : numeric / spotPrice}`;
+      }
+      const res = await fetch(url);
       if (!res.ok)
         throw new Error((await res.text()) || `Preview failed (${res.status})`);
       setPreview(await res.json());
@@ -212,7 +225,8 @@ export default function TradeModal({
       setStatus("Executing trade…");
 
       const slippageBuffer = side === "buy" ? 1.01 : 0.99;
-      const maxTotalUsdc = preview.total_usdc * slippageBuffer;
+      const previewUsdc = preview.total_usdc ?? preview.gross_usdc ?? preview.net_usdc ?? 0;
+      const maxTotalUsdc = previewUsdc * slippageBuffer;
 
       const endpoint = side === "buy" ? "/api/mm/buy" : "/api/mm/sell";
       const res = await fetch(endpoint, {
@@ -220,7 +234,7 @@ export default function TradeModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_address: walletAddress,
-          qty_vsp: numeric,
+          qty_vsp: preview.qty_vsp,
           max_total_usdc: maxTotalUsdc,
           permit: {
             deadline,
@@ -267,10 +281,18 @@ export default function TradeModal({
 
   function handleMax() {
     if (side === "buy") {
-      const maxVsp = usdcBalance / spotPrice || 0;
-      setAmount(maxVsp.toFixed(4));
+      if (denom === "usdc") {
+        setAmount(usdcBalance.toFixed(2));
+      } else {
+        const maxVsp = usdcBalance / spotPrice || 0;
+        setAmount(maxVsp.toFixed(4));
+      }
     } else {
-      setAmount(vspBalance.toFixed(4));
+      if (denom === "vsp") {
+        setAmount(vspBalance.toFixed(4));
+      } else {
+        setAmount((vspBalance * spotPrice).toFixed(2));
+      }
     }
   }
 
@@ -317,25 +339,44 @@ export default function TradeModal({
           Liquidation floor: ${quote.floor_price_usd.toFixed(4)}
         </div>
 
-        {/* Amount input */}
+        {/* Amount input with denomination toggle */}
         <div style={{ marginBottom: 8 }}>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={side === "buy" ? "VSP to buy" : "VSP to sell"}
-            className="input"
-            style={{ width: "100%", marginBottom: 4 }}
-          />
-          <button
-            className="btn"
-            onClick={handleMax}
-            style={{ fontSize: 12, padding: "4px 10px" }}
-          >
-            Max
-          </button>
+          <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder={denom === "vsp" ? "Amount in VSP" : "Amount in USDC"}
+              className="input"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="btn"
+              onClick={() => {
+                setDenom(denom === "vsp" ? "usdc" : "vsp");
+                setAmount("");
+                setPreview(null);
+              }}
+              style={{ fontSize: 11, padding: "4px 8px", minWidth: 50, fontWeight: 600 }}
+              title="Switch between VSP and USDC"
+            >
+              {denom === "vsp" ? "VSP" : "USDC"} ⇄
+            </button>
+            <button
+              className="btn"
+              onClick={handleMax}
+              style={{ fontSize: 11, padding: "4px 8px" }}
+            >
+              Max
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: "#9ca3af" }}>
+            {denom === "vsp"
+              ? `≈ ${(numeric * spotPrice).toFixed(2)} USDC at current price`
+              : `≈ ${(numeric / spotPrice).toFixed(4)} VSP at current price`}
+          </div>
         </div>
 
         {/* Preview button */}
@@ -348,7 +389,7 @@ export default function TradeModal({
           {previewing ? "Calculating…" : "Preview Fill"}
         </button>
 
-        {/* Preview result */}
+        {/* Preview result with fee breakdown */}
         {preview && (
           <div
             style={{
@@ -359,12 +400,43 @@ export default function TradeModal({
               fontSize: 13,
             }}
           >
-            <div>
-              Estimated {side === "buy" ? "cost" : "proceeds"}:{" "}
-              <strong>~{preview.total_usdc.toFixed(2)} USDC</strong>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>You {side === "buy" ? "receive" : "send"}:</span>
+              <strong>{preview.qty_vsp.toFixed(4)} VSP</strong>
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>
-              Avg price: ${preview.avg_price_usd.toFixed(4)}/VSP
+            {side === "buy" ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                  <span>Subtotal:</span>
+                  <span>{(preview.subtotal_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                  <span>Platform fee:</span>
+                  <span>{(preview.fee_usdc ?? 0).toFixed(2)} USDC ({(preview.fee_vsp ?? 0).toFixed(4)} VSP)</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, borderTop: "1px solid #e5e7eb", paddingTop: 4, marginTop: 4 }}>
+                  <span>Total cost:</span>
+                  <span>{(preview.total_usdc ?? 0).toFixed(2)} USDC</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                  <span>Gross proceeds:</span>
+                  <span>{(preview.gross_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                  <span>Platform fee:</span>
+                  <span>-{(preview.fee_usdc ?? 0).toFixed(2)} USDC ({(preview.fee_vsp ?? 0).toFixed(4)} VSP)</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, borderTop: "1px solid #e5e7eb", paddingTop: 4, marginTop: 4 }}>
+                  <span>You receive:</span>
+                  <span>{(preview.net_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
+                </div>
+              </>
+            )}
+            <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+              Avg price: ${(preview.avg_price ?? preview.avg_price_usd ?? 0).toFixed(4)}/VSP
             </div>
           </div>
         )}
@@ -415,7 +487,9 @@ export default function TradeModal({
           >
             {loading
               ? "Processing…"
-              : `${side === "buy" ? "Buy" : "Sell"} ${numeric > 0 ? numeric + " VSP" : ""}`}
+              : preview
+                ? `${side === "buy" ? "Buy" : "Sell"} ${preview.qty_vsp.toFixed(4)} VSP`
+                : `${side === "buy" ? "Buy" : "Sell"} VSP`}
           </button>
         </div>
 

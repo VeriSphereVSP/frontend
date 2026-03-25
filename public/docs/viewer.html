@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verisphere</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #1a1a2e;
+      background: #fafbfc;
+      line-height: 1.7;
+    }
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .header a {
+      color: #2563eb;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .header a:hover { text-decoration: underline; }
+    .logo {
+      font-size: 18px;
+      font-weight: 800;
+      color: #1a1a2e;
+      text-decoration: none !important;
+    }
+    .content {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+    .content h1 { font-size: 28px; font-weight: 800; margin: 0 0 8px; }
+    .content h2 { font-size: 20px; font-weight: 700; margin: 32px 0 12px; }
+    .content h3 { font-size: 16px; font-weight: 600; margin: 24px 0 8px; }
+    .content p { margin: 0 0 12px; }
+    .content ul, .content ol { margin: 0 0 12px; padding-left: 24px; }
+    .content li { margin: 0 0 4px; }
+    .content hr { border: none; border-top: 1px solid #e5e7eb; margin: 24px 0; }
+    .content strong { font-weight: 600; }
+    .content a { color: #2563eb; }
+    .content code {
+      background: #f3f4f6; padding: 2px 6px; border-radius: 3px;
+      font-size: 0.9em; font-family: "SF Mono", Monaco, Consolas, monospace;
+    }
+    .content pre {
+      background: #f3f4f6; padding: 16px; border-radius: 6px;
+      overflow-x: auto; margin: 0 0 12px;
+    }
+    .content pre code { background: none; padding: 0; }
+    .content blockquote {
+      border-left: 3px solid #2563eb; padding-left: 16px;
+      color: #6b7280; margin: 0 0 12px;
+    }
+    .content table { border-collapse: collapse; width: 100%; margin: 0 0 16px; }
+    .content th, .content td {
+      border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; font-size: 14px;
+    }
+    .content th { background: #f9fafb; font-weight: 600; }
+    .loading { text-align: center; padding: 60px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <a href="/" class="logo">Verisphere</a>
+    <a href="/docs/viewer.html?file=whitepaper.md">Whitepaper</a>
+    <a href="/docs/viewer.html?file=guide.md">How to Play</a>
+    <a href="/docs/viewer.html?file=about.md">About</a>
+    <a href="/docs/viewer.html?file=tos.md">Terms of Service</a>
+  </div>
+  <div class="content" id="content">
+    <div class="loading">Loading…</div>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const file = params.get('file') || 'about.md';
+    // Sanitize — only allow simple filenames
+    const safe = file.replace(/[^a-zA-Z0-9._-]/g, '');
+    fetch('/docs/' + safe)
+      .then(r => {
+        if (!r.ok) throw new Error('Not found');
+        return r.text();
+      })
+      .then(md => {
+        document.getElementById('content').innerHTML = marked.parse(md);
+        // Set page title from first h1
+        const h1 = document.querySelector('.content h1');
+        if (h1) document.title = h1.textContent + ' — Verisphere';
+      })
+      .catch(() => {
+        document.getElementById('content').innerHTML =
+          '<p style="color:#ef4444;">Document not found.</p>';
+      });
+  </script>
+</body>
+</html>
