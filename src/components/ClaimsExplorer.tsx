@@ -2,6 +2,8 @@ import { useAccount } from "wagmi";
 // frontend/src/components/ClaimsExplorer.tsx
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Jazzicon from "./Jazzicon";
+import VSBar from "./VSBar";
+import StakeControl from "./StakeControl";
 import { InlineClaimCard } from "./ArticleView";
 import { PlusButton } from "./article";
 
@@ -420,7 +422,7 @@ export default function ClaimsExplorer() {
                     }}
                     title={c.text}
                   >
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ display: "inline-flex", alignItems: "flex-start", gap: 4 }}>
                       {c.creator && <Jazzicon address={c.creator} size={14} />}
                       {isExpanded ? c.text : (c.text.length > 60 ? c.text.slice(0, 57) + "…" : c.text)}
                     </span>
@@ -434,14 +436,7 @@ export default function ClaimsExplorer() {
                       textAlign: "right",
                     }}
                   >
-                    <span
-                      style={{
-                        color: vsColor(c.verity_score),
-                        fontWeight: 600,
-                      }}
-                    >
-                      {fmtVS(c.verity_score)}
-                    </span>
+                    <VSBar vs={c.verity_score} width={70} height={18} />
                   </div>
                   {/* Stake */}
                   <div
@@ -561,21 +556,25 @@ export default function ClaimsExplorer() {
                 {isExpanded && (
                   <div
                     style={{
-                      padding: "0 12px 12px",
+                      padding: "8px 12px 12px",
                       background: "#f0f4ff",
                       borderBottom: "1px solid #e5e7eb",
                     }}
                   >
-                    <div style={{ marginLeft: 44, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
-                    <InlineClaimCard
-                      postId={c.post_id}
-                      text={c.text}
-                      stakeSupport={c.stake_support}
-                      stakeChallenge={c.stake_challenge}
-                      verityScore={c.verity_score}
-                      onRefresh={fetchClaims}
-                      onClose={() => setExpandedId(null)}
-                    />
+
+
+                    {/* Claim card with stake + links */}
+                    <div style={{ marginLeft: 66 }}>
+                      <InlineClaimCard
+                        postId={c.post_id}
+                        text={c.text}
+                        stakeSupport={c.stake_support}
+                        stakeChallenge={c.stake_challenge}
+                        verityScore={c.verity_score}
+                        onRefresh={fetchClaims}
+                        onClose={() => setExpandedId(null)}
+                        
+                      />
                     </div>
                   </div>
                 )}

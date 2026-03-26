@@ -1,6 +1,7 @@
 // frontend/src/components/article/InlineClaimCard.tsx
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAccount } from "wagmi";
+import VSBar from "../VSBar";
 import { useCreateClaim } from "@verisphere/protocol";
 import { useCreateLink } from "@verisphere/protocol";
 import { useStake } from "@verisphere/protocol";
@@ -10,6 +11,7 @@ import B from "./MiniButton";
 import { friendlyError, fireToast } from "../../utils/errorMessages";
 import { fireTxProgress } from "./TxProgress";
 import StakeInput from "./StakeInput";
+import StakeControl from "../StakeControl";
 import ClaimPickerModal from "./ClaimPickerModal";
 
 const MAX_CLAIM_LENGTH = 500;
@@ -654,6 +656,7 @@ export default function InlineClaimCard({
   allSentences,
   onRefresh,
   onClose,
+  linksOnly,
   postType,
 }: {
   postId: number | null;
@@ -666,6 +669,7 @@ export default function InlineClaimCard({
   allSentences?: Sentence[];
   onRefresh: () => void;
   onClose?: () => void;
+  linksOnly?: boolean;
 }) {
   const { isConnected, address } = useAccount();
   const {
@@ -952,283 +956,79 @@ export default function InlineClaimCard({
         boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
       }}
     >
-      {/* ── Top section: staking (prominent) + close button ── */}
+      {/* ── Top section: staking + close (hidden when linksOnly) ── */}
+      {!linksOnly && (
       <div style={{ marginBottom: 5 }}>
         {pid != null ? (
-          <>
-            {/* Line 1: Staking — prominent, directly below the claim text */}
-            {isConnected &&
-              (() => {
-                if (stakeNeedsApproval)
-                  return (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 6,
-                        alignItems: "center",
-                        marginBottom: 3,
-                      }}
-                    >
-                      <span
-                        style={{ fontSize: 12, fontWeight: 700, color: C.text }}
-                      >
-                        {postType === "link"
-                          ? "Stake this link"
-                          : "Stake this claim"}
-                      </span>
-                      <span style={{ color: C.muted }}>·</span>
-                      <span style={{ fontSize: 10, color: C.gray }}>
-                        VSP approval needed
-                      </span>
-                      <B onClick={stakeApproveVSP} dis={staking}>
-                        {staking ? "…" : "Approve"}
-                      </B>
-                      {onClose && (
-                        <>
-                          <span style={{ flex: 1 }} />
-                          <span
-                            onClick={onClose}
-                            style={{
-                              cursor: "pointer",
-                              fontSize: 13,
-                              color: C.muted,
-                              fontWeight: 700,
-                              lineHeight: 1,
-                              padding: "0 2px",
-                            }}
-                            title="Close"
-                          >
-                            ✕
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  );
-                const val = parseFloat(amt);
-                const isPos = !isNaN(val) && val > 0;
-                const isNeg = !isNaN(val) && val < 0;
-                return (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 5,
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      marginBottom: 3,
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 12, fontWeight: 700, color: C.text }}
-                    >
-                      {postType === "link"
-                        ? "Stake this link:"
-                        : "Stake this claim:"}
-                    </span>
-                    <StakeInput value={amt} onChange={setAmt} onSubmit={doGo} />
-                    <B onClick={doGo} dis={staking || !amt}>
-                      {staking ? "…" : "Go"}
-                    </B>
-                    <span style={{ fontSize: 10 }}>
-                      <span
-                        style={{
-                          color: isPos ? C.green : C.muted,
-                          fontWeight: isPos ? 700 : 400,
-                        }}
-                      >
-                        + support
-                      </span>
-                      <span style={{ color: C.muted }}> / </span>
-                      <span
-                        style={{
-                          color: isNeg ? C.red : C.muted,
-                          fontWeight: isNeg ? 700 : 400,
-                        }}
-                      >
-                        − challenge
-                      </span>
-                    </span>
-                    {onClose && (
-                      <>
-                        <span style={{ flex: 1 }} />
-                        <span
-                          onClick={onClose}
-                          style={{
-                            cursor: "pointer",
-                            fontSize: 13,
-                            color: C.muted,
-                            fontWeight: 700,
-                            lineHeight: 1,
-                            padding: "0 2px",
-                          }}
-                          title="Close"
-                        >
-                          ✕
-                        </span>
-                      </>
-                    )}
-                  </div>
-                );
-              })()}
-
-            {/* Line 2: Position + claim metadata */}
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                alignItems: "center",
-                fontSize: 10,
-                color: C.muted,
-                flexWrap: "wrap",
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <StakeControl
+              postId={pid}
+              currentSupport={userSup}
+              currentChallenge={userChal}
+              onDone={() => {
+                onRefresh();
+                if (address && pid) {
+                  setTimeout(() => {
+                    fetch(`${API}/claims/${pid}/user-stake?user=${address}`)
+                      .then((r) => (r.ok ? r.json() : null))
+                      .then((d) => {
+                        if (d) { setUserSup(n(d.user_support)); setUserChal(n(d.user_challenge)); }
+                      }).catch(() => {});
+                  }, 2000);
+                }
               }}
-            >
-              {isConnected && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  Your position:{" "}
-                  <span style={{ color: posColor, fontWeight: 600 }}>
-                    {posLabel}
-                  </span>
-                  {(userSup > 0.001 || userChal > 0.001) && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        fireTxProgress({ action: "start", title: "Liquidating Position", steps: [
-                          { label: "Withdraw all stake", status: "pending" },
-                        ]});
-                        fireTxProgress({ action: "step", stepIndex: 0 });
-                        try {
-                          if (userSup > 0) await withdraw(pid, "support", userSup);
-                          if (userChal > 0) await withdraw(pid, "challenge", userChal);
-                          fireTxProgress({ action: "done" });
-                          onRefresh();
-                        } catch (err: any) {
-                          fireTxProgress({ action: "error", error: "Liquidate failed: " + (err.message || err) });
-                        }
-                      }}
-                      style={{
-                        padding: "1px 6px",
-                        fontSize: 9,
-                        fontWeight: 600,
-                        border: "1px solid #fca5a5",
-                        borderRadius: 3,
-                        background: "#fef2f2",
-                        color: "#dc2626",
-                        cursor: "pointer",
-                        lineHeight: "14px",
-                      }}
-                      title={`Withdraw all: ${userSup > 0 ? userSup.toFixed(2) + " support" : ""}${userSup > 0 && userChal > 0 ? " + " : ""}${userChal > 0 ? userChal.toFixed(2) + " challenge" : ""}`}
-                    >
-                      Liquidate
-                    </button>
-                  )}
-                </span>
-              )}
-              <span style={{ color: C.muted }}>·</span>
-              <span>
-                {postType === "link" ? "Link" : "Claim"}#{pid}
-              </span>
-              <span style={{ color: vs >= 0 ? C.green : C.red }}>
-                {vs >= 0 ? "▲" : "▼"}
-              </span>
-              <span style={{ fontWeight: 600, color: vc(vs) }}>
-                VS {fmt(vs)}
-              </span>
-              {!isConnected && onClose && (
-                <>
-                  <span style={{ flex: 1 }} />
-                  <span
-                    onClick={onClose}
-                    style={{
-                      cursor: "pointer",
-                      fontSize: 13,
-                      color: C.muted,
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      padding: "0 2px",
-                    }}
-                    title="Close"
-                  >
-                    ✕
-                  </span>
-                </>
-              )}
-            </div>
-          </>
+              compact
+            />
+            {onClose && (
+              <span
+                onClick={onClose}
+                style={{ cursor: "pointer", fontSize: 13, color: C.muted, fontWeight: 700, marginLeft: "auto" }}
+                title="Close"
+              >✕</span>
+            )}
+          </div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-              fontSize: 11,
-            }}
-          >
+          <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11 }}>
             {checking ? (
-              <span style={{ color: C.muted, fontStyle: "italic" }}>
-                Checking on-chain…
-              </span>
+              <span style={{ color: C.muted, fontStyle: "italic" }}>Checking on-chain…</span>
             ) : (
               <>
                 <span style={{ color: C.muted, fontWeight: 600 }}>Not on chain</span>
-                {isConnected &&
-                  sentenceId &&
-                  (needsApproval ? (
-                    <B onClick={approveVSP}>Approve VSP</B>
-                  ) : (
-                    <>
-                      <StakeInput
-                        value={initStake}
-                        onChange={setInitStake}
-                        onSubmit={registerOnChain}
-                      />
-                      <span style={{ fontSize: 9 }}>
-                        {(() => {
-                          const v = parseFloat(initStake);
-                          if (isNaN(v) || v === 0) return <span style={{ color: C.muted }}>no initial stake</span>;
-                          if (v > 0) return <span style={{ color: C.green, fontWeight: 600 }}>VSP support</span>;
-                          return <span style={{ color: C.red, fontWeight: 600 }}>VSP challenge</span>;
-                        })()}
-                      </span>
-                      <B
-                        onClick={registerOnChain}
-                        dis={txing || createPhase !== "idle"}
-                      >
-                        {createPhase === "creating"
-                          ? "Creating claim…"
-                          : createPhase === "staking"
-                            ? "Staking…"
-                            : (() => {
-                                const v = parseFloat(initStake);
-                                if (isNaN(v) || v === 0) return "Create only (1 VSP fee)";
-                                if (v > 0) return `Create + ${Math.abs(v)} support`;
-                                return `Create + ${Math.abs(v)} challenge`;
-                              })()}
-                      </B>
-                    </>
-                  ))}
+                {isConnected && sentenceId && (needsApproval ? (
+                  <B onClick={approveVSP}>Approve VSP</B>
+                ) : (
+                  <>
+                    <StakeInput value={initStake} onChange={setInitStake} onSubmit={registerOnChain} />
+                    <span style={{ fontSize: 9 }}>
+                      {(() => {
+                        const v = parseFloat(initStake);
+                        if (isNaN(v) || v === 0) return <span style={{ color: C.muted }}>no initial stake</span>;
+                        if (v > 0) return <span style={{ color: C.green, fontWeight: 600 }}>VSP support</span>;
+                        return <span style={{ color: C.red, fontWeight: 600 }}>VSP challenge</span>;
+                      })()}
+                    </span>
+                    <B onClick={registerOnChain} dis={txing || createPhase !== "idle"}>
+                      {createPhase === "creating" ? "Creating…" : createPhase === "staking" ? "Staking…" : (() => {
+                        const v = parseFloat(initStake);
+                        if (isNaN(v) || v === 0) return "Create only (1 VSP fee)";
+                        if (v > 0) return `Create + ${Math.abs(v)} support`;
+                        return `Create + ${Math.abs(v)} challenge`;
+                      })()}
+                    </B>
+                  </>
+                ))}
               </>
             )}
             {onClose && (
               <>
                 <span style={{ flex: 1 }} />
-                <span
-                  onClick={onClose}
-                  style={{
-                    cursor: "pointer",
-                    fontSize: 13,
-                    color: C.muted,
-                    fontWeight: 700,
-                    lineHeight: 1,
-                    padding: "0 2px",
-                  }}
-                  title="Close"
-                >
-                  ✕
-                </span>
+                <span onClick={onClose} style={{ cursor: "pointer", fontSize: 13, color: C.muted, fontWeight: 700 }} title="Close">✕</span>
               </>
             )}
           </div>
         )}
       </div>
+      )}
 
       {/* Error display */}
       {(claimError || stakeError || goError) && (

@@ -17,3 +17,4 @@ coverage/
 
 # Allow deployment addresses  
 !src/deployments/*-addresses.json
+*.bak

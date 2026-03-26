@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useAccount } from "wagmi";
 import { useStake } from "@verisphere/protocol";
 import { InlineClaimCard } from "./ArticleView";
+import VSBar from "./VSBar";
+import StakeControl from "./StakeControl";
 import { PlusButton } from "./article";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api";
@@ -253,14 +255,7 @@ function PositionRow({ pos, onRefresh }: { pos: Position; onRefresh: () => void 
                 {pos.topic.length > 20 ? pos.topic.slice(0, 17) + "…" : pos.topic}
               </span>
             )}
-            { (
-              <span
-                style={{ color: vsColor(pos.verity_score), fontWeight: 600 }}
-              >
-                VS {pos.verity_score > 0 ? "+" : ""}
-                {pos.verity_score.toFixed(1)}%
-              </span>
-            )}
+            <VSBar vs={pos.verity_score} width={70} height={18} />
             {!pos.is_active && (
               <span style={{ color: C.amber, fontWeight: 600 }}>Inactive</span>
             )}
@@ -296,7 +291,6 @@ function PositionRow({ pos, onRefresh }: { pos: Position; onRefresh: () => void 
               <div>Truth Pressure: {pos.apr_breakdown.abs_vs.toFixed(1)}%</div>
               <div>Post Size: {pos.apr_breakdown.total_stake.toFixed(1)} / {pos.apr_breakdown.s_max.toFixed(1)}</div>
               <div>Queue Position: {(pos.apr_breakdown.tranche ?? 0) + 1} of {pos.apr_breakdown.num_tranches ?? 10} ({((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%)</div>
-              <div>Rate: {pos.apr_breakdown.r_eff.toFixed(1)}% ({pos.apr_breakdown.vs === 0 ? "neutral" : pos.apr_breakdown.is_winner ? "earning" : "losing"})</div>
             </div>
           )}
         </div>
