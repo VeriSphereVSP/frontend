@@ -1,8 +1,11 @@
 // Target-based stake control: single line with up/down arrows
 // User sets their desired total position; component calculates delta
 import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
 import { useStake } from "@verisphere/protocol";
 import { fireTxProgress } from "./article/TxProgress";
+
+const API = import.meta.env.VITE_API_BASE || "/api";
 
 const C = {
   green: "#16a34a",
@@ -18,20 +21,46 @@ export default function StakeControl({
   currentChallenge,
   onDone,
   compact = false,
+  label,
 }: {
   postId: number;
   currentSupport: number;
   currentChallenge: number;
   onDone: () => void;
   compact?: boolean;
+  label?: string;
 }) {
   const { stake, withdraw } = useStake();
-  const currentNet = currentSupport - currentChallenge; // positive = support, negative = challenge
+  const { address } = useAccount();
+  const [liveSup, setLiveSup] = useState(currentSupport);
+  const [liveChal, setLiveChal] = useState(currentChallenge);
+
+  // Fetch live position
+  useEffect(() => {
+    if (!address || !postId) return;
+    fetch(`${API}/claims/${postId}/user-stake?user=${address}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d) {
+          setLiveSup(d.user_support || 0);
+          setLiveChal(d.user_challenge || 0);
+        }
+      }).catch(() => {});
+  }, [postId, address]);
+
+  // Also sync from props
+  useEffect(() => {
+    if (currentSupport > 0 || currentChallenge > 0) {
+      setLiveSup(currentSupport);
+      setLiveChal(currentChallenge);
+    }
+  }, [currentSupport, currentChallenge]);
+
+  const currentNet = liveSup - liveChal;
   const [target, setTarget] = useState(currentNet.toFixed(2));
-  // Sync target when props change (e.g. after async fetch)
   useEffect(() => {
     setTarget(currentNet.toFixed(2));
-  }, [currentSupport, currentChallenge]);
+  }, [liveSup, liveChal]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -61,30 +90,40 @@ export default function StakeControl({
     try {
       if (targetVal === 0) {
         // Liquidate everything
-        if (currentSupport > 0.001) await withdraw(postId, "support", currentSupport);
-        if (currentChallenge > 0.001) await withdraw(postId, "challenge", currentChallenge);
+        if (liveSup > 0.001) await withdraw(postId, "support", liveSup);
+        if (liveChal > 0.001) await withdraw(postId, "challenge", liveChal);
       } else if (targetVal > 0) {
         // Target is support
         // First withdraw any challenge
-        if (currentChallenge > 0.001) await withdraw(postId, "challenge", currentChallenge);
+        if (liveChal > 0.001) await withdraw(postId, "challenge", liveChal);
         // Then adjust support
-        if (absTarget > currentSupport + 0.001) {
-          await stake(postId, "support", absTarget - currentSupport);
-        } else if (absTarget < currentSupport - 0.001) {
-          await withdraw(postId, "support", currentSupport - absTarget);
+        if (absTarget > liveSup + 0.001) {
+          await stake(postId, "support", absTarget - liveSup);
+        } else if (absTarget < liveSup - 0.001) {
+          await withdraw(postId, "support", liveSup - absTarget);
         }
       } else {
         // Target is challenge
         // First withdraw any support
-        if (currentSupport > 0.001) await withdraw(postId, "support", currentSupport);
+        if (liveSup > 0.001) await withdraw(postId, "support", liveSup);
         // Then adjust challenge
-        if (absTarget > currentChallenge + 0.001) {
-          await stake(postId, "challenge", absTarget - currentChallenge);
-        } else if (absTarget < currentChallenge - 0.001) {
-          await withdraw(postId, "challenge", currentChallenge - absTarget);
+        if (absTarget > liveChal + 0.001) {
+          await stake(postId, "challenge", absTarget - liveChal);
+        } else if (absTarget < liveChal - 0.001) {
+          await withdraw(postId, "challenge", liveChal - absTarget);
         }
       }
       fireTxProgress({ action: "done" });
+      // Refresh position after delay
+      setTimeout(() => {
+        if (address && postId) {
+          fetch(`${API}/claims/${postId}/user-stake?user=${address}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => {
+              if (d) { setLiveSup(d.user_support || 0); setLiveChal(d.user_challenge || 0); }
+            }).catch(() => {});
+        }
+      }, 2000);
       onDone();
     } catch (e: any) {
       setErr(e.message?.slice(0, 60) || "Stake failed");
@@ -100,7 +139,7 @@ export default function StakeControl({
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
       <span style={{ fontSize, color: C.muted, fontWeight: 600 }}>
-        Your stake on this claim:
+        {label || "Your stake on this claim:"}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <input

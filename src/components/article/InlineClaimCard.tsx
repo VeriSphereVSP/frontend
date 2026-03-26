@@ -36,194 +36,25 @@ function LinkStakeWidget({
   linkVS?: number;
   onDone: () => void;
 }) {
-  const { stake, withdraw, loading } = useStake();
-  const { isConnected, address } = useAccount();
-  const [amt, setAmt] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [userSup, setUserSup] = useState(0);
-  const [userChal, setUserChal] = useState(0);
-  const vs = n(linkVS ?? 0);
-
-  // Fetch user position on this link
-  useEffect(() => {
-    if (!address || !linkPostId) return;
-    fetch(`${API}/claims/${linkPostId}/user-stake?user=${address}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setUserSup(n(d.user_support));
-          setUserChal(n(d.user_challenge));
-        }
-      })
-      .catch(() => {});
-  }, [linkPostId, address]);
-
-  const go = async () => {
-    const val = parseFloat(amt);
-    if (!val) return;
-    setErr(null);
-    try {
-      const absVal = Math.abs(val);
-      if (val > 0) {
-        if (userChal > 0) {
-          const tw = Math.min(userChal, absVal);
-          await withdraw(linkPostId, "challenge", tw);
-          if (absVal - tw > 0.001)
-            await stake(linkPostId, "support", absVal - tw);
-        } else {
-          await stake(linkPostId, "support", absVal);
-        }
-      } else {
-        if (userSup > 0) {
-          const tw = Math.min(userSup, absVal);
-          await withdraw(linkPostId, "support", tw);
-          if (absVal - tw > 0.001)
-            await stake(linkPostId, "challenge", absVal - tw);
-        } else {
-          await stake(linkPostId, "challenge", absVal);
-        }
-      }
-      setAmt("");
-      fireToast("Link stake updated", "success");
-      if (linkPostId) await triggerReindex(linkPostId, address);
-      // Refresh user position
-      setTimeout(() => {
-        if (address) {
-          fetch(`${API}/claims/${linkPostId}/user-stake?user=${address}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-              if (d) {
-                setUserSup(n(d.user_support));
-                setUserChal(n(d.user_challenge));
-              }
-            })
-            .catch(() => {});
-        }
-      }, 3000);
-      onDone();
-    } catch (e: any) {
-      const msg = friendlyError(e);
-      setErr(msg);
-      fireToast(msg, "error");
-    }
-  };
-
-  const posLabel =
-    userSup > 0.001
-      ? `${userSup.toFixed(1)} support`
-      : userChal > 0.001
-        ? `${userChal.toFixed(1)} challenge`
-        : "none";
-  const posColor =
-    userSup > 0.001 ? C.green : userChal > 0.001 ? C.red : C.muted;
-  const val = parseFloat(amt);
-  const isPos = !isNaN(val) && val > 0;
-  const isNeg = !isNaN(val) && val < 0;
-
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
         marginTop: 4,
-        padding: "6px 8px",
+        padding: "4px 8px",
         background: "rgba(59,130,246,0.04)",
         borderRadius: 6,
-        border: `1px solid rgba(59,130,246,0.12)`,
+        border: "1px solid rgba(59,130,246,0.12)",
       }}
     >
-      {/* Line 1: Stake this link + input */}
-      <div
-        style={{
-          display: "flex",
-          gap: 5,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 3,
-        }}
-      >
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>
-          Stake this link:
-        </span>
-        <StakeInput value={amt} onChange={setAmt} onSubmit={go} />
-        <B onClick={go} dis={loading || !amt}>
-          {loading ? "…" : "Go"}
-        </B>
-        <span style={{ fontSize: 10 }}>
-          <span
-            style={{
-              color: isPos ? C.green : C.muted,
-              fontWeight: isPos ? 700 : 400,
-            }}
-          >
-            + support
-          </span>
-          <span style={{ color: C.muted }}> / </span>
-          <span
-            style={{
-              color: isNeg ? C.red : C.muted,
-              fontWeight: isNeg ? 700 : 400,
-            }}
-          >
-            − challenge
-          </span>
-        </span>
-      </div>
-      {/* Line 2: Position + link metadata */}
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          alignItems: "center",
-          fontSize: 10,
-          color: C.muted,
-          flexWrap: "wrap",
-        }}
-      >
-        {isConnected && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            Your position:{" "}
-            <span style={{ color: posColor, fontWeight: 600 }}>{posLabel}</span>
-            {(userSup > 0.001 || userChal > 0.001) && (
-              <button
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  fireTxProgress({ action: "start", title: "Liquidating Link", steps: [
-                    { label: "Withdraw all stake", status: "pending" },
-                  ]});
-                  fireTxProgress({ action: "step", stepIndex: 0 });
-                  try {
-                    if (userSup > 0) await withdraw(linkPostId, "support", userSup);
-                    if (userChal > 0) await withdraw(linkPostId, "challenge", userChal);
-                    fireTxProgress({ action: "done" });
-                    onDone();
-                  } catch (err: any) {
-                    fireTxProgress({ action: "error", error: "Liquidate failed: " + (err.message || err) });
-                  }
-                }}
-                style={{
-                  padding: "1px 6px", fontSize: 9, fontWeight: 600,
-                  border: "1px solid #fca5a5", borderRadius: 3,
-                  background: "#fef2f2", color: "#dc2626", cursor: "pointer",
-                }}
-                title={`Withdraw all: ${userSup > 0 ? userSup.toFixed(2) + " support" : ""}${userSup > 0 && userChal > 0 ? " + " : ""}${userChal > 0 ? userChal.toFixed(2) + " challenge" : ""}`}
-              >
-                Liquidate
-              </button>
-            )}
-          </span>
-        )}
-        <span style={{ color: C.muted }}>·</span>
-        <span>Link#{linkPostId}</span>
-        <span style={{ color: vs >= 0 ? C.green : C.red }}>
-          {vs >= 0 ? "▲" : "▼"}
-        </span>
-        <span style={{ fontWeight: 600, color: vc(vs) }}>VS {fmt(vs)}</span>
-      </div>
-      {err && (
-        <div style={{ fontSize: 9, color: C.red, marginTop: 2 }}>
-          {err.slice(0, 60)}
-        </div>
-      )}
+      <StakeControl
+        postId={linkPostId}
+        currentSupport={0}
+        currentChallenge={0}
+        onDone={onDone}
+        compact
+        label="Your stake on this link:"
+      />
     </div>
   );
 }
