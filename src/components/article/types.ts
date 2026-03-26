@@ -30,5 +30,10 @@ export type Edge = {
   is_challenge: boolean;
   claim_text?: string;
   claim_vs?: number;
+  claim_support?: number;
+  claim_challenge?: number;
+  link_support?: number;
+  link_challenge?: number;
+  link_vs?: number;
   _dir?: string;
 };

@@ -218,6 +218,17 @@ function LinkPanel({
       >
         {title}
       </div>
+      {/* Column headers for link metrics */}
+      {edges.length > 0 && (
+        <div style={{ display: "flex", gap: 0, fontSize: 9, color: C.muted, fontWeight: 600, borderBottom: "1px solid #e5e7eb", paddingBottom: 2, marginBottom: 2 }}>
+          <div style={{ flex: "3 1 0", padding: "0 6px" }}>Link</div>
+          <div style={{ flex: "0 0 75px", padding: "0 3px", textAlign: "center" }}>VS</div>
+          <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px" }}>Stake</div>
+          <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px" }}>Ctrv</div>
+          <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px" }}>Sup</div>
+          <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px" }}>Chl</div>
+        </div>
+      )}
       <div
         style={{
           maxHeight: 90,
@@ -243,48 +254,70 @@ function LinkPanel({
                     setStakingLinkId(isStaking ? null : e.link_post_id)
                   }
                   style={{
-                    fontSize: 10,
-                    padding: "1px 0",
+                    fontSize: 11,
+                    padding: "3px 0",
                     display: "flex",
-                    gap: 3,
-                    alignItems: "baseline",
+                    gap: 0,
+                    alignItems: "center",
                     cursor: "pointer",
                     borderRadius: 2,
                     background: isStaking
                       ? "rgba(59,130,246,0.06)"
                       : "transparent",
+                    borderBottom: "1px solid #f0f0f0",
                   }}
                   title="Click to stake this link"
                 >
-                  <span
+                  {/* Link text — wraps within column */}
+                  <div
                     style={{
-                      color: isC ? C.red : C.green,
-                      fontSize: 10,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {isC ? "✗" : "✓"}
-                    {direction === "outgoing" ? " →" : ""}
-                  </span>
-                  <span
-                    style={{
-                      flex: 1,
-                      fontWeight: 600,
+                      flex: "3 1 0",
+                      padding: "2px 6px",
                       fontSize: 11,
                       color: isC ? C.red : C.text,
+                      fontWeight: 500,
+                      lineHeight: 1.4,
+                      overflow: "hidden",
                     }}
                   >
+                    <span style={{ color: isC ? C.red : C.green, fontWeight: 700, marginRight: 3 }}>
+                      {isC ? "✗" : "✓"}{direction === "outgoing" ? " →" : ""}
+                    </span>
                     {e.claim_text || `#${e.claim_post_id}`}
-                  </span>
-                  <span
-                    style={{
-                      color: vc(e.claim_vs ?? 0),
-                      fontSize: 8,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {fmt(e.claim_vs ?? 0)}
-                  </span>
+                    {direction === "incoming" ? (
+                      <span style={{ fontWeight: 400, fontSize: 10, color: isC ? "#f87171" : "#4ade80", fontStyle: "italic" }}>
+                        {isC ? " — challenges this claim" : " — supports this claim"}
+                      </span>
+                    ) : (
+                      <span style={{ fontWeight: 400, fontSize: 10, color: isC ? "#f87171" : "#4ade80", fontStyle: "italic" }}>
+                        {isC ? " — this claim challenges" : " — this claim supports"}
+                      </span>
+                    )}
+                  </div>
+                  {/* VS */}
+                  <div style={{ flex: "0 0 75px", padding: "0 3px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <VSBar vs={e.claim_vs ?? 0} width={70} height={18} />
+                  </div>
+                  {/* Stake */}
+                  <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px", fontSize: 11, color: "#374151" }}>
+                    {((e.link_support ?? 0) + (e.link_challenge ?? 0)).toFixed(2)}
+                  </div>
+                  {/* Controversy */}
+                  <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px", fontSize: 11, color: "#374151" }}>
+                    {(() => {
+                      const t = (e.link_support ?? 0) + (e.link_challenge ?? 0);
+                      if (t === 0) return "0.00";
+                      return (Math.min(e.link_support ?? 0, e.link_challenge ?? 0) / t).toFixed(2);
+                    })()}
+                  </div>
+                  {/* Support */}
+                  <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px", fontSize: 11, color: "#374151" }}>
+                    {(e.link_support ?? 0).toFixed(2)}
+                  </div>
+                  {/* Challenge */}
+                  <div style={{ flex: "0 0 50px", textAlign: "right", padding: "0 3px", fontSize: 11, color: "#374151" }}>
+                    {(e.link_challenge ?? 0).toFixed(2)}
+                  </div>
                 </div>
                 {isStaking && isConnected && (
                   <LinkStakeWidget
@@ -870,7 +903,7 @@ export default function InlineClaimCard({
 
       {/* ── Row 2: Incoming (left) | Outgoing (right) ── */}
       {pid != null && postType !== "link" && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {eLoading ? (
             <span style={{ fontSize: 9, color: C.muted }}>Loading links…</span>
           ) : (
@@ -886,9 +919,7 @@ export default function InlineClaimCard({
                 linking={linking}
                 onRefresh={onRefresh}
               />
-              <div
-                style={{ width: 1, background: C.gb, alignSelf: "stretch" }}
-              />
+
               <LinkPanel
                 direction="outgoing"
                 edges={outgoingEdges}

@@ -48,6 +48,20 @@ function vsColor(vs: number): string {
   return "#dc2626";
 }
 
+
+// Shared column widths for claims and links alignment
+const COL = {
+  id: "0 0 30px",
+  text: "3 1 0",
+  vs: "0 0 75px",
+  stake: "0 0 50px",
+  ctrv: "0 0 50px",
+  sup: "0 0 50px",
+  chl: "0 0 50px",
+  links_in: "0 0 30px",
+  links_out: "0 0 30px",
+  topic: "1 1 0",
+};
 export default function ClaimsExplorer() {
   const { isConnected } = useAccount();
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -345,11 +359,17 @@ export default function ClaimsExplorer() {
                   fontSize: 11,
                   color: sortKey === col.key ? "#2563eb" : "#6b7280",
                   flex:
-                    col.key === "text"
-                      ? "3 1 0"
-                      : col.key === "topic"
-                        ? "1.5 1 0"
-                        : "0 0 60px",
+                    col.key === "text" ? COL.text
+                    : col.key === "topic" ? COL.topic
+                    : col.key === "post_id" ? COL.id
+                    : col.key === "verity_score" ? COL.vs
+                    : col.key === "total_stake" ? COL.stake
+                    : col.key === "controversy" ? COL.ctrv
+                    : col.key === "stake_support" ? COL.sup
+                    : col.key === "stake_challenge" ? COL.chl
+                    : col.key === "links_in" ? COL.links_in
+                    : col.key === "links_out" ? COL.links_out
+                    : COL.stake,
                   textAlign:
                     col.key === "text" || col.key === "topic"
                       ? "left"
@@ -400,9 +420,9 @@ export default function ClaimsExplorer() {
                   {/* # */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: "0 0 30px",
+                      padding: "6px 3px",
+                      fontSize: 11,
                       color: "#9ca3af",
                       textAlign: "right",
                     }}
@@ -430,10 +450,11 @@ export default function ClaimsExplorer() {
                   {/* VS */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
-                      textAlign: "right",
+                      flex: COL.vs,
+                      padding: "4px 3px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                   >
                     <VSBar vs={c.verity_score} width={70} height={18} />
@@ -441,9 +462,9 @@ export default function ClaimsExplorer() {
                   {/* Stake */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.stake,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}
@@ -453,9 +474,9 @@ export default function ClaimsExplorer() {
                   {/* Controversy */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.ctrv,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}
@@ -465,9 +486,9 @@ export default function ClaimsExplorer() {
                   {/* Support */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.sup,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}
@@ -477,9 +498,9 @@ export default function ClaimsExplorer() {
                   {/* Challenge */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.chl,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}
@@ -489,9 +510,9 @@ export default function ClaimsExplorer() {
                   {/* In */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.links_in,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}
@@ -501,9 +522,9 @@ export default function ClaimsExplorer() {
                   {/* Out */}
                   <div
                     style={{
-                      flex: "0 0 60px",
-                      padding: "6px",
-                      fontSize: 12,
+                      flex: COL.links_out,
+                      padding: "4px 3px",
+                      fontSize: 11,
                       textAlign: "right",
                       color: "#374151",
                     }}

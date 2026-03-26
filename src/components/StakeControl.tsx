@@ -176,6 +176,9 @@ export default function StakeControl({
         <span style={{ fontSize, fontWeight: 600, color: sideColor, minWidth: 50 }}>
           VSP ({sideLabel})
         </span>
+        <span style={{ fontSize: fontSize - 1, color: C.muted }}>
+          Total: {(liveSup + liveChal).toFixed(2)}
+        </span>
       </div>
       {changed && (
         <button

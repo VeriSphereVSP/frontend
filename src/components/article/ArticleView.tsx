@@ -9,6 +9,7 @@ import PlusButton from "./PlusButton";
 import StakeInput from "./StakeInput";
 import { fireTxProgress } from "./TxProgress";
 import InlineClaimCard from "./InlineClaimCard";
+import VSBar from "../VSBar";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -477,16 +478,9 @@ export default function ArticleView({
                         >
                           {s.text}
                           {onC && (
-                            <sup
-                              style={{
-                                fontSize: 8,
-                                fontWeight: 600,
-                                marginLeft: 1,
-                                color: vc(vs),
-                              }}
-                            >
-                              {fmt(vs)}
-                            </sup>
+                            <span style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 3 }}>
+                              <VSBar vs={vs} width={40} height={12} />
+                            </span>
                           )}
                         </span>
                       )}{" "}
@@ -673,15 +667,9 @@ export default function ArticleView({
                             >
                               {s.text}
                               {s.post_id != null && (
-                                <sup
-                                  style={{
-                                    fontSize: 8,
-                                    fontWeight: 600,
-                                    color: C.red,
-                                  }}
-                                >
-                                  {fmt(vs)}
-                                </sup>
+                                <span style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 3 }}>
+                                  <VSBar vs={vs} width={40} height={12} />
+                                </span>
                               )}
                             </span>
                             {isSel && (
