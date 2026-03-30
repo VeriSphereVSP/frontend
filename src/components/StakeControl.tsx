@@ -88,6 +88,23 @@ export default function StakeControl({
     });
 
     try {
+      // Check VSP balance before submitting
+      if (targetVal !== 0 && address) {
+        try {
+          const balRes = await fetch(`${API}/token/balance?address=${address}`);
+          if (balRes.ok) {
+            const balData = await balRes.json();
+            const balVSP = Number(BigInt(balData.balance || "0")) / 1e18;
+            const needed = Math.abs(targetVal) - (targetVal > 0 ? liveSup : liveChal);
+            if (needed > 0 && balVSP < needed - 0.001) {
+              setErr(`Insufficient VSP (have ${balVSP.toFixed(2)}, need ${needed.toFixed(2)})`);
+              fireTxProgress({ action: "error", error: "Insufficient VSP balance" });
+              setBusy(false);
+              return;
+            }
+          }
+        } catch {}
+      }
       if (targetVal === 0) {
         // Liquidate everything
         if (liveSup > 0.001) await withdraw(postId, "support", liveSup);

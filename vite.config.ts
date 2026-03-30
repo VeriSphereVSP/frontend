@@ -12,7 +12,7 @@ export default defineConfig({
       // The PROTOCOL_PATH env var lets Docker override this.
       "@verisphere/protocol": process.env.PROTOCOL_PATH
         ? path.resolve(process.env.PROTOCOL_PATH, "dist")
-        : path.resolve(__dirname, "../../protocol/dist"),
+        : path.resolve(__dirname, "../protocol/dist"),
     },
   },
 

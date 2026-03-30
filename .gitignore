@@ -18,3 +18,14 @@ coverage/
 # Allow deployment addresses  
 !src/deployments/*-addresses.json
 *.bak
+
+# Stale address files — frontend reads from @verisphere/protocol, not these
+src/deployments/fuji-addresses.json
+src/deployments/mainnet-addresses.json
+
+node_modules/
+dist/
+
+# Synced from docs/ (canonical source) — do not edit here
+# This is either a symlink (dev) or materialized copy (Docker build)
+public/docs/whitepaper.md

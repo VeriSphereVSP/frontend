@@ -62,6 +62,276 @@ const COL = {
   links_out: "0 0 30px",
   topic: "1 1 0",
 };
+
+function ExpandedClaimDetail({ claim: c, onRefresh, onClose }: { 
+  claim: any; onRefresh: () => void; onClose: () => void;
+}) {
+  const [edges, setEdges] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stakingLinkId, setStakingLinkId] = useState<number | null>(null);
+  const { isConnected, address } = useAccount();
+  const [inSearch, setInSearch] = useState("");
+  const [outSearch, setOutSearch] = useState("");
+  const [inResults, setInResults] = useState<any[]>([]);
+  const [outResults, setOutResults] = useState<any[]>([]);
+  const [linkingDir, setLinkingDir] = useState<"incoming" | "outgoing" | null>(null);
+
+  const refreshEdges = useCallback(async () => {
+    try {
+      const [inc, out] = await Promise.all([
+        fetch(`/api/claims/${c.post_id}/edges?direction=incoming`).then(r => r.json()),
+        fetch(`/api/claims/${c.post_id}/edges?direction=outgoing`).then(r => r.json()),
+      ]);
+      setEdges([
+        ...(inc.incoming || []).map((e: any) => ({ ...e, _dir: "incoming" })),
+        ...(out.outgoing || []).map((e: any) => ({ ...e, _dir: "outgoing" })),
+      ]);
+    } catch {}
+    setLoading(false);
+  }, [c.post_id]);
+
+  useEffect(() => { refreshEdges(); }, [refreshEdges]);
+
+  // Debounced search for link creation
+  useEffect(() => {
+    const q = inSearch.trim();
+    if (q.length < 2) { setInResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/claims/search?q=${encodeURIComponent(q)}&limit=8`).then(r => r.json());
+        setInResults((res.claims || []).filter((x: any) => x.post_id !== c.post_id));
+      } catch { setInResults([]); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [inSearch, c.post_id]);
+
+  useEffect(() => {
+    const q = outSearch.trim();
+    if (q.length < 2) { setOutResults([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/claims/search?q=${encodeURIComponent(q)}&limit=8`).then(r => r.json());
+        setOutResults((res.claims || []).filter((x: any) => x.post_id !== c.post_id));
+      } catch { setOutResults([]); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [outSearch, c.post_id]);
+
+  const doCreateLink = async (fromId: number, toId: number, isChallenge: boolean) => {
+    try {
+      setLinkingDir(fromId === c.post_id ? "outgoing" : "incoming");
+      const res = await fetch("/api/links/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ independent_post_id: fromId, dependent_post_id: toId, is_challenge: isChallenge }),
+      }).then(r => r.json());
+      setInSearch(""); setOutSearch("");
+      setInResults([]); setOutResults([]);
+      setTimeout(refreshEdges, 2000);
+      setTimeout(onRefresh, 2000);
+    } catch (e) {
+      console.warn("Link creation failed:", e);
+    }
+    setLinkingDir(null);
+  };
+
+  const incoming = edges.filter(e => e._dir === "incoming");
+  const outgoing = edges.filter(e => e._dir === "outgoing");
+
+  const renderLinkRow = (e: any, dir: "incoming" | "outgoing") => {
+    const isC = e.is_challenge;
+    const linkTotal = (e.link_support ?? 0) + (e.link_challenge ?? 0);
+    const linkCtrv = linkTotal > 0 ? Math.min(e.link_support ?? 0, e.link_challenge ?? 0) / linkTotal : 0;
+    const isStaking = stakingLinkId === e.link_post_id;
+    return (
+      <div key={e.link_post_id}>
+        <div
+          onClick={(ev) => {
+            ev.stopPropagation();
+            setStakingLinkId(isStaking ? null : e.link_post_id);
+          }}
+          style={{
+            display: "flex", padding: "0 12px", alignItems: "center",
+            cursor: "pointer",
+            background: isStaking ? "#eef2ff" : "#f8fafc",
+            borderBottom: "1px solid #f0f0f0",
+            transition: "background 0.1s",
+          }}
+          onMouseEnter={(ev) => { if (!isStaking) ev.currentTarget.style.background = "#eef2ff"; }}
+          onMouseLeave={(ev) => { if (!isStaking) ev.currentTarget.style.background = "#f8fafc"; }}
+          title="Click to stake this link"
+        >
+          {/* # (indent) */}
+          <div style={{ flex: COL.id, padding: "4px 3px", fontSize: 10, color: "#9ca3af", textAlign: "right" }}>
+            ↳
+          </div>
+          {/* Link text */}
+          <div style={{ flex: COL.text, padding: "4px 6px", fontSize: 12, color: "#374151", lineHeight: 1.4, minWidth: 0, overflow: "hidden" }}>
+            {dir === "incoming" ? (
+              <>
+                <span style={{ color: "#374151" }}>{e.claim_text || `#${e.claim_post_id}`}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: isC ? "#dc2626" : "#16a34a", fontStyle: "italic" }}>
+                  {" "}{isC ? "✗ challenges this claim" : "✓ supports this claim"}
+                </span>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 11, fontWeight: 600, color: isC ? "#dc2626" : "#16a34a", fontStyle: "italic" }}>
+                  {isC ? "This claim challenges ✗ → " : "This claim supports ✓ → "}
+                </span>
+                <span style={{ color: "#374151" }}>{e.claim_text || `#${e.claim_post_id}`}</span>
+              </>
+            )}
+          </div>
+          {/* VS */}
+          <div style={{ flex: COL.vs, padding: "2px 3px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <VSBar vs={e.link_vs ?? e.claim_vs ?? 0} width={70} height={18} />
+          </div>
+          {/* Stake */}
+          <div style={{ flex: COL.stake, padding: "4px 3px", fontSize: 11, textAlign: "right", color: "#374151" }}>
+            {linkTotal.toFixed(2)}
+          </div>
+          {/* Controversy */}
+          <div style={{ flex: COL.ctrv, padding: "4px 3px", fontSize: 11, textAlign: "right", color: "#374151" }}>
+            {linkCtrv.toFixed(2)}
+          </div>
+          {/* Support */}
+          <div style={{ flex: COL.sup, padding: "4px 3px", fontSize: 11, textAlign: "right", color: "#374151" }}>
+            {(e.link_support ?? 0).toFixed(2)}
+          </div>
+          {/* Challenge */}
+          <div style={{ flex: COL.chl, padding: "4px 3px", fontSize: 11, textAlign: "right", color: "#374151" }}>
+            {(e.link_challenge ?? 0).toFixed(2)}
+          </div>
+          {/* In (empty for links) */}
+          <div style={{ flex: COL.links_in, padding: "4px 3px" }} />
+          {/* Out (empty for links) */}
+          <div style={{ flex: COL.links_out, padding: "4px 3px" }} />
+          {/* Topic (empty for links) */}
+          <div style={{ flex: COL.topic, padding: "4px 3px" }} />
+        </div>
+        {/* Staking widget — shown when link row is clicked */}
+        {isStaking && isConnected && (
+          <div onClick={(ev) => ev.stopPropagation()} style={{
+            margin: "0 12px 4px 42px", padding: "6px 10px",
+            background: "rgba(59,130,246,0.04)", borderRadius: 6,
+            border: "1px solid rgba(59,130,246,0.12)",
+          }}>
+            <StakeControl
+              postId={e.link_post_id}
+              currentSupport={e.link_support ?? 0}
+              currentChallenge={e.link_challenge ?? 0}
+              onDone={() => { setStakingLinkId(null); refreshEdges(); onRefresh(); }}
+              compact
+              label="Your stake on this link:"
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderCreateLink = (dir: "incoming" | "outgoing") => {
+    if (!isConnected) return null;
+    const search = dir === "incoming" ? inSearch : outSearch;
+    const setSearchFn = dir === "incoming" ? setInSearch : setOutSearch;
+    const results = dir === "incoming" ? inResults : outResults;
+
+    return (
+      <div style={{ padding: "4px 12px 4px 42px", display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 120px", minWidth: 120 }}>
+          <input
+            value={search}
+            onChange={(e) => setSearchFn(e.target.value)}
+            placeholder="Search claim to link…"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", padding: "3px 6px", borderRadius: 4,
+              border: "1px solid #e5e7eb", fontSize: 11, boxSizing: "border-box",
+            }}
+          />
+          {results.length > 0 && (
+            <div style={{
+              position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+              background: "#fff", border: "1px solid #e5e7eb", borderRadius: "0 0 4px 4px",
+              maxHeight: 150, overflowY: "auto", boxShadow: "0 3px 8px rgba(0,0,0,.08)",
+            }}>
+              {results.map((r: any) => (
+                <div key={r.post_id} style={{ display: "flex", gap: 4, padding: "4px 6px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid #f5f5f5" }}
+                  onClick={(ev) => { ev.stopPropagation(); }}
+                  onMouseEnter={(ev) => { ev.currentTarget.style.background = "#f0f4ff"; }}
+                  onMouseLeave={(ev) => { ev.currentTarget.style.background = "#fff"; }}
+                >
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    #{r.post_id} {r.text}
+                  </span>
+                  <button onClick={(ev) => { ev.stopPropagation();
+                    if (dir === "incoming") doCreateLink(r.post_id, c.post_id, false);
+                    else doCreateLink(c.post_id, r.post_id, false);
+                  }} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, border: "1px solid #16a34a", color: "#16a34a", background: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}
+                    disabled={linkingDir !== null}
+                  >✓ support</button>
+                  <button onClick={(ev) => { ev.stopPropagation();
+                    if (dir === "incoming") doCreateLink(r.post_id, c.post_id, true);
+                    else doCreateLink(c.post_id, r.post_id, true);
+                  }} style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, border: "1px solid #dc2626", color: "#dc2626", background: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}
+                    disabled={linkingDir !== null}
+                  >✗ challenge</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {linkingDir === dir && <span style={{ fontSize: 10, color: "#6b7280" }}>Creating…</span>}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background: "#f0f4ff", borderBottom: "1px solid #e5e7eb" }}>
+      {/* Stake control row */}
+      <div style={{ padding: "8px 12px 4px", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <StakeControl
+            postId={c.post_id}
+            currentSupport={c.stake_support}
+            currentChallenge={c.stake_challenge}
+            onDone={onRefresh}
+            compact
+          />
+        </div>
+        <span onClick={onClose} style={{ cursor: "pointer", fontSize: 13, color: "#9ca3af", fontWeight: 700 }} title="Close">✕</span>
+      </div>
+
+      {/* Incoming links — always shown */}
+      <div style={{ padding: "2px 0" }}>
+        <div style={{ padding: "2px 12px 2px 42px", fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: ".03em" }}>
+          Incoming — evidence for/against this claim
+        </div>
+        {incoming.length > 0
+          ? incoming.map(e => renderLinkRow(e, "incoming"))
+          : !loading && <div style={{ padding: "2px 12px 2px 42px", fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>No incoming links</div>
+        }
+        {renderCreateLink("incoming")}
+      </div>
+
+      {/* Outgoing links — always shown */}
+      <div style={{ padding: "2px 0" }}>
+        <div style={{ padding: "2px 12px 2px 42px", fontSize: 9, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: ".03em" }}>
+          Outgoing — this claim is evidence for/against
+        </div>
+        {outgoing.length > 0
+          ? outgoing.map(e => renderLinkRow(e, "outgoing"))
+          : !loading && <div style={{ padding: "2px 12px 2px 42px", fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>No outgoing links</div>
+        }
+        {renderCreateLink("outgoing")}
+      </div>
+
+      {loading && <div style={{ padding: "4px 12px", fontSize: 10, color: "#9ca3af" }}>Loading links…</div>}
+    </div>
+  );
+}
+
 export default function ClaimsExplorer() {
   const { isConnected } = useAccount();
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -573,31 +843,13 @@ export default function ClaimsExplorer() {
                   </div>
                 </div>
 
-                {/* Expanded claim card */}
+                {/* Expanded claim detail */}
                 {isExpanded && (
-                  <div
-                    style={{
-                      padding: "8px 12px 12px",
-                      background: "#f0f4ff",
-                      borderBottom: "1px solid #e5e7eb",
-                    }}
-                  >
-
-
-                    {/* Claim card with stake + links */}
-                    <div style={{ marginLeft: 66 }}>
-                      <InlineClaimCard
-                        postId={c.post_id}
-                        text={c.text}
-                        stakeSupport={c.stake_support}
-                        stakeChallenge={c.stake_challenge}
-                        verityScore={c.verity_score}
-                        onRefresh={fetchClaims}
-                        onClose={() => setExpandedId(null)}
-                        
-                      />
-                    </div>
-                  </div>
+                  <ExpandedClaimDetail
+                    claim={c}
+                    onRefresh={fetchClaims}
+                    onClose={() => setExpandedId(null)}
+                  />
                 )}
               </div>
             );
