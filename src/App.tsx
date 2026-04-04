@@ -1,4 +1,5 @@
 // frontend/src/App.tsx
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import VSPMarketWidget from "./components/VSPMarketWidget";
@@ -380,9 +381,28 @@ function LandingHero({ onSubmit }: { onSubmit: (q: string) => void }) {
 /* ── Main App ── */
 export default function App() {
   const { isConnected } = useAccount();
-  const [view, setView] = useState<View>("explore");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const view = location.pathname === "/claims" ? "claims"
+    : location.pathname === "/portfolio" ? "portfolio"
+    : "explore";
+  const setView = (v: string) => {
+    if (v === "explore") navigate("/");
+    else if (v === "claims") navigate("/claims");
+    else if (v === "portfolio") navigate("/portfolio");
+  };
   const [input, setInput] = useState("");
+  const topicParam = location.pathname.startsWith("/topic/")
+    ? decodeURIComponent(location.pathname.slice(7))
+    : null;
   const [topic, setTopic] = useState<string | null>(null);
+  // Sync URL topic to state
+  useEffect(() => {
+    if (topicParam && topicParam !== topic) {
+      setTopic(topicParam);
+    }
+  }, [topicParam]);
+
 
   // Disambiguation
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -398,7 +418,7 @@ export default function App() {
       if (detail?.topic) {
         setInput(detail.topic);
         setTopic(detail.topic);
-        setView("explore");
+        navigate(t ? `/topic/${encodeURIComponent(t)}` : "/");
       }
     };
     window.addEventListener("verisphere:navigate", handler);
