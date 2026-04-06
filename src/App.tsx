@@ -418,7 +418,7 @@ export default function App() {
       if (detail?.topic) {
         setInput(detail.topic);
         setTopic(detail.topic);
-        navigate(t ? `/topic/${encodeURIComponent(t)}` : "/");
+        navigate(`/topic/${encodeURIComponent(detail.topic)}`);
       }
     };
     window.addEventListener("verisphere:navigate", handler);

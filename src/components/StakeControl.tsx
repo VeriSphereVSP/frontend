@@ -22,6 +22,7 @@ export default function StakeControl({
   onDone,
   compact = false,
   label,
+  postTotal,
 }: {
   postId: number;
   currentSupport: number;
@@ -29,6 +30,7 @@ export default function StakeControl({
   onDone: () => void;
   compact?: boolean;
   label?: string;
+  postTotal?: number;
 }) {
   const { stake, withdraw } = useStake();
   const { address } = useAccount();
@@ -194,7 +196,7 @@ export default function StakeControl({
           VSP ({sideLabel})
         </span>
         <span style={{ fontSize: fontSize - 1, color: C.muted }}>
-          Total: {(liveSup + liveChal).toFixed(2)}
+          Total: {(postTotal != null ? postTotal : liveSup + liveChal).toFixed(2)}
         </span>
       </div>
       {changed && (
