@@ -5,6 +5,8 @@ import Jazzicon from "./Jazzicon";
 import VSBar from "./VSBar";
 import StakeControl from "./StakeControl";
 import { PlusButton } from "./article";
+import ClaimPickerModal from "./article/ClaimPickerModal";
+import { useCreateLink, useStake } from "@verisphere/protocol";
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -22,6 +24,12 @@ type Claim = {
   outgoing_links: number;
   topic: string;
   created_at: string | null;
+  is_link?: boolean;
+  from_post_id?: number;
+  to_post_id?: number;
+  is_challenge?: boolean;
+  from_text?: string;
+  to_text?: string;
 };
 
 type Edge = {
@@ -69,8 +77,8 @@ const S = {
   blueLight: "#ebf4ff",
 };
 
-const GRID = "32px 40px minmax(0,1fr) 72px 54px 54px 54px 36px 36px 52px";
-const LINK_GRID = "32px 40px minmax(0,1fr) 72px 54px 54px 54px 36px 36px 52px";
+const GRID = "32px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
+const LINK_GRID = "32px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
 
 // ── Copyable Address Tooltip ────────────────────────
 function AddressTooltip({ address, children }: { address: string; children: React.ReactNode }) {
@@ -174,6 +182,12 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
   const [linkSearch, setLinkSearch] = useState("");
   const [linkResults, setLinkResults] = useState<any[]>([]);
   const [linking, setLinking] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [pick, setPick] = useState<any>(null);
+  const [linkType, setLinkType] = useState<"support" | "challenge">("support");
+  const [linkStake, setLinkStake] = useState("1");
+  const { createLink } = useCreateLink();
+  const { stake: stakeOnLink } = useStake();
 
   const refreshEdges = useCallback(async () => {
     try {
@@ -197,22 +211,45 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
     return () => clearTimeout(t);
   }, [linkSearch, c.post_id]);
 
-  const doCreateLink = async (fromId: number, toId: number, isChallenge: boolean) => {
+  const doLink = async () => {
+    if (!pick?.post_id) return;
     try {
       setLinking(true);
-      await fetch(`${API}/links/create`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ independent_post_id: fromId, dependent_post_id: toId, is_challenge: isChallenge }),
-      });
-      setLinkSearch(""); setLinkResults([]);
-      setTimeout(refreshEdges, 2000);
-      setTimeout(onRefresh, 2000);
-    } catch (e) { console.warn("Link creation failed:", e); }
+      // Create the link (MetaMask will prompt for signature)
+      const txHash = await createLink(pick.post_id, c.post_id, linkType === "challenge");
+      const amt = parseFloat(linkStake);
+      // Stake on the new link after it's indexed
+      if (amt > 0 && txHash) {
+        setTimeout(async () => {
+          try {
+            const res = await fetch(`${API}/claims/${c.post_id}/edges?direction=incoming`).then(r => r.json());
+            const newEdges = res.incoming || [];
+            const newLink = newEdges.find((e: any) =>
+              e.claim_post_id === pick.post_id && e.is_challenge === (linkType === "challenge")
+            );
+            if (newLink?.link_post_id) {
+              // MetaMask will prompt for a second signature to stake
+              await stakeOnLink(newLink.link_post_id, "support", amt);
+            }
+          } catch (e) { console.warn("Initial link stake failed:", e); }
+          refreshEdges();
+          onRefresh();
+        }, 3000);
+      } else {
+        setTimeout(refreshEdges, 2000);
+        setTimeout(onRefresh, 2000);
+      }
+      setPick(null);
+      setLinkSearch("");
+      setLinkResults([]);
+    } catch (e) {
+      console.warn("Link creation failed:", e);
+    }
     setLinking(false);
   };
 
   return (
-    <div style={{ background: S.bgExpanded, borderBottom: `1px solid ${S.border}`, padding: "10px 16px" }}>
+    <div style={{ background: S.bgExpanded, borderBottom: `1px solid ${S.border}`, padding: "10px 16px 10px 96px" }}>
       {/* Staking row */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
         <StakeControl
@@ -233,13 +270,13 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
       {/* Queue view */}
       {showQueue && <QueueView postId={c.post_id} connectedAddress={address} />}
 
-      {/* Link search / create */}
-      {isConnected && (
+      {/* Link search / create — only for claims, not links */}
+      {isConnected && !c.is_link && (
         <div style={{ position: "relative", marginBottom: 8 }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               value={linkSearch}
-              onChange={(e) => setLinkSearch(e.target.value)}
+              onChange={(e) => { setLinkSearch(e.target.value); if (pick) setPick(null); }}
               onClick={(e) => e.stopPropagation()}
               placeholder="Search to link new claim…"
               style={{
@@ -247,37 +284,107 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                 border: `1px solid ${S.border}`, fontSize: 12, maxWidth: 320,
               }}
             />
+            <span
+              onClick={(e) => { e.stopPropagation(); setShowPicker(true); }}
+              title="Browse all claims"
+              style={{
+                cursor: "pointer", fontSize: 13, padding: "3px 8px",
+                borderRadius: 5, border: `1px solid ${S.border}`,
+                background: "#fff", color: S.blue, fontWeight: 700,
+                userSelect: "none" as const, lineHeight: 1,
+              }}
+            >
+              ⊞
+            </span>
             {linkSearch.trim().length > 0 && (
               <span style={{ fontSize: 10, color: S.textFaint }}>
-                {linking ? "Creating…" : `${linkResults.length} results`}
+                {linkResults.length} results
               </span>
             )}
           </div>
-          {linkResults.length > 0 && (
+          {showPicker && (
+            <ClaimPickerModal
+              excludePostId={c.post_id}
+              onClose={() => setShowPicker(false)}
+              onPick={(picked) => {
+                setPick(picked);
+                setLinkSearch(picked.text);
+                setLinkResults([]);
+                setShowPicker(false);
+              }}
+            />
+          )}
+          {/* Search dropdown (only when no pick selected yet) */}
+          {!pick && linkResults.length > 0 && (
             <div style={{
               position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, maxWidth: 500,
               background: "#fff", border: `1px solid ${S.border}`, borderRadius: "0 0 6px 6px",
               maxHeight: 180, overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,.08)",
             }}>
               {linkResults.map((r: any) => (
-                <div key={r.post_id} style={{
-                  display: "flex", gap: 6, padding: "6px 10px", fontSize: 12,
-                  borderBottom: `1px solid ${S.borderLight}`, alignItems: "center",
-                }}
+                <div key={r.post_id}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setPick(r);
+                    setLinkSearch(r.text);
+                    setLinkResults([]);
+                  }}
+                  style={{
+                    display: "flex", gap: 6, padding: "6px 10px", fontSize: 12,
+                    borderBottom: `1px solid ${S.borderLight}`, alignItems: "center", cursor: "pointer",
+                  }}
                   onMouseEnter={(ev) => { ev.currentTarget.style.background = S.bgHover; }}
                   onMouseLeave={(ev) => { ev.currentTarget.style.background = "#fff"; }}
                 >
+                  <span style={{ color: S.textFaint, fontSize: 10, marginRight: 4 }}>#{r.post_id}</span>
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: S.text }}>
-                    #{r.post_id} {r.text}
+                    {r.text}
                   </span>
-                  <button onClick={(ev) => { ev.stopPropagation(); doCreateLink(r.post_id, c.post_id, false); }}
-                    style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, border: `1px solid ${S.green}`, color: S.green, background: "#fff", cursor: "pointer" }}
-                    disabled={linking}>✓ Support</button>
-                  <button onClick={(ev) => { ev.stopPropagation(); doCreateLink(r.post_id, c.post_id, true); }}
-                    style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, border: `1px solid ${S.red}`, color: S.red, background: "#fff", cursor: "pointer" }}
-                    disabled={linking}>✗ Challenge</button>
                 </div>
               ))}
+            </div>
+          )}
+          {/* Pick confirmed — show type toggle, stake input, link button */}
+          {pick && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+              <span
+                onClick={() => setLinkType(linkType === "support" ? "challenge" : "support")}
+                title={linkType === "support" ? "Support (click to toggle to challenge)" : "Challenge (click to toggle to support)"}
+                style={{
+                  fontSize: 11, fontWeight: 600, cursor: "pointer",
+                  padding: "3px 8px", borderRadius: 4,
+                  background: linkType === "support" ? S.green : S.red,
+                  color: "#fff", userSelect: "none" as const,
+                }}
+              >
+                {linkType === "support" ? "✦ Support" : "⚔ Challenge"}
+              </span>
+              <input
+                type="number"
+                value={linkStake}
+                onChange={(e) => setLinkStake(e.target.value)}
+                placeholder="stake"
+                style={{
+                  width: 60, padding: "3px 6px", borderRadius: 4,
+                  border: `1px solid ${S.border}`, fontSize: 11, textAlign: "right",
+                }}
+              />
+              <span style={{ fontSize: 10, color: S.textMuted }}>VSP</span>
+              <button
+                onClick={doLink}
+                disabled={linking}
+                style={{
+                  padding: "4px 12px", borderRadius: 4, border: "none",
+                  background: linking ? S.textFaint : S.blue, color: "#fff",
+                  fontSize: 11, fontWeight: 600, cursor: linking ? "not-allowed" : "pointer",
+                }}
+              >
+                {linking ? "Signing…" : "Link & stake"}
+              </button>
+              <span
+                onClick={() => { setPick(null); setLinkSearch(""); setLinkResults([]); }}
+                style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4 }}
+              >Cancel</span>
             </div>
           )}
         </div>
@@ -298,17 +405,16 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
 
         return (
           <div key={e.link_post_id}>
-            {/* Link row — same grid as claims */}
+            {/* Link row — same grid as claims, click to navigate to its main row */}
             <div
               style={{
                 display: "grid", gridTemplateColumns: LINK_GRID,
                 padding: "6px 0", alignItems: "center",
                 cursor: "pointer", borderRadius: 4,
-                background: isStaking ? S.blueLight : "transparent",
               }}
-              onClick={() => setStakingLinkId(isStaking ? null : e.link_post_id)}
-              onMouseEnter={(ev) => { if (!isStaking) ev.currentTarget.style.background = S.bgHover; }}
-              onMouseLeave={(ev) => { if (!isStaking) ev.currentTarget.style.background = isStaking ? S.blueLight : "transparent"; }}
+              onClick={() => onGoTo(e.link_post_id)}
+              onMouseEnter={(ev) => { ev.currentTarget.style.background = S.bgHover; }}
+              onMouseLeave={(ev) => { ev.currentTarget.style.background = "transparent"; }}
             >
               {/* # */}
               <div style={{ fontSize: 11, color: S.textFaint, textAlign: "right", padding: "0 4px" }}>{e.link_post_id}</div>
@@ -345,38 +451,16 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
               </div>
               {/* Controversy placeholder */}
               <div></div>
+              {/* Topic placeholder */}
+              <div></div>
             </div>
-            {/* Go to claim link */}
-            <div style={{ paddingLeft: 76, paddingBottom: 4 }}>
-              <span
-                style={{ fontSize: 10, color: S.blue, cursor: "pointer" }}
-                onClick={(ev) => { ev.stopPropagation(); onGoTo(e.claim_post_id); }}
-                onMouseEnter={(ev) => { (ev.target as HTMLElement).style.textDecoration = "underline"; }}
-                onMouseLeave={(ev) => { (ev.target as HTMLElement).style.textDecoration = "none"; }}
-              >Go to claim →</span>
-            </div>
-            {/* Link staking */}
-            {isStaking && isConnected && (
-              <div style={{ padding: "4px 16px 8px 76px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <StakeControl
-                    postId={e.link_post_id}
-                    currentSupport={e.link_support ?? 0}
-                    currentChallenge={e.link_challenge ?? 0}
-                    postTotal={linkTotal}
-                    onDone={() => { setStakingLinkId(null); refreshEdges(); onRefresh(); }}
-                    compact
-                    label="Your stake on this link:"
-                  />
-                </div>
-                <QueueView postId={e.link_post_id} connectedAddress={address} />
-              </div>
-            )}
+
+
           </div>
         );
       })}
 
-      {edges.length === 0 && !loading && (
+      {edges.length === 0 && !loading && !c.is_link && (
         <div style={{ fontSize: 11, color: S.textFaint, fontStyle: "italic", padding: "4px 0" }}>No incoming links</div>
       )}
       {loading && <div style={{ fontSize: 11, color: S.textFaint, padding: "4px 0" }}>Loading links…</div>}
@@ -394,6 +478,7 @@ export default function ClaimsExplorer() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filter, setFilter] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
+  const [showLinks, setShowLinks] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const fetchClaims = useCallback(async () => {
@@ -429,13 +514,14 @@ export default function ClaimsExplorer() {
 
   const filtered = useMemo(() => {
     let list = dedupClaims;
+    if (!showLinks) list = list.filter(c => !c.is_link);
     if (filter.trim()) {
       const q = filter.toLowerCase();
       list = list.filter(c => c.text.toLowerCase().includes(q) || String(c.post_id).includes(q));
     }
     if (topicFilter) list = list.filter(c => c.topic === topicFilter);
     return list;
-  }, [dedupClaims, filter, topicFilter]);
+  }, [dedupClaims, filter, topicFilter, showLinks]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -476,6 +562,7 @@ export default function ClaimsExplorer() {
     { key: "post_id", label: "In", align: "right" },
     { key: "post_id", label: "Out", align: "right" },
     { key: "controversy", label: "Controv." },
+    { key: "topic", label: "Topic" },
   ];
 
   return (
@@ -522,8 +609,12 @@ export default function ClaimsExplorer() {
         <button onClick={fetchClaims} style={{ padding: "7px 14px", borderRadius: 6, border: `1px solid ${S.border}`, fontSize: 13, cursor: "pointer", background: "#fff", color: S.textMuted }}>
           Refresh
         </button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: S.textMuted, cursor: "pointer" }}>
+          <input type="checkbox" checked={showLinks} onChange={e => setShowLinks(e.target.checked)} />
+          Show links
+        </label>
         <span style={{ fontSize: 12, color: S.textFaint }}>
-          {sorted.length} claim{sorted.length !== 1 ? "s" : ""}{filter || topicFilter ? " (filtered)" : ""}
+          {sorted.length} {sorted.length === 1 ? "entry" : "entries"}{filter || topicFilter || !showLinks ? " (filtered)" : ""}
         </span>
       </div>
 
@@ -541,18 +632,25 @@ export default function ClaimsExplorer() {
             display: "grid", gridTemplateColumns: GRID,
             background: S.bgAlt, borderBottom: `2px solid ${S.border}`, padding: "0 16px",
           }}>
-            {COLS.map((col, ci) => (
-              <div key={ci} onClick={() => ci > 1 ? toggleSort(col.key) : null} style={{
-                padding: "10px 4px", cursor: ci > 1 ? "pointer" : "default",
-                userSelect: "none" as const, whiteSpace: "nowrap" as const,
-                fontWeight: 600, fontSize: 10, textTransform: "uppercase" as const, letterSpacing: ".03em",
-                color: sortKey === col.key && ci > 1 ? S.blue : S.textFaint,
-                textAlign: ci <= 2 ? "left" as const : "right" as const,
-              }}>
-                {col.label}
-                {sortKey === col.key && ci > 1 && <span style={{ marginLeft: 2, fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
-              </div>
-            ))}
+            {COLS.map((col, ci) => {
+              // ci 0=#, 1=C/L, 2=Claim/Link, 3=VS, 4=Stake, 5=Sup, 6=Chal, 7=In, 8=Out, 9=Controv
+              const isLeftCol = ci <= 2;
+              const isCenterCol = ci === 3;  // VS only
+              const isRightWithPad = ci === 7 || ci === 8;  // In, Out
+              const align = isLeftCol ? "left" : isCenterCol ? "center" : "right";
+              return (
+                <div key={ci} onClick={() => ci > 1 ? toggleSort(col.key) : null} style={{
+                  padding: isCenterCol ? "10px 0" : isRightWithPad ? "10px 8px 10px 4px" : "10px 4px", cursor: ci > 1 ? "pointer" : "default",
+                  userSelect: "none" as const, whiteSpace: "nowrap" as const,
+                  fontWeight: 600, fontSize: 10, textTransform: "uppercase" as const, letterSpacing: ".03em",
+                  color: sortKey === col.key && ci > 1 ? S.blue : S.textFaint,
+                  textAlign: align as any,
+                }}>
+                  {col.label}
+                  {sortKey === col.key && ci > 1 && <span style={{ marginLeft: 2, fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
+                </div>
+              );
+            })}
           </div>
 
           {/* Data rows */}
@@ -576,18 +674,40 @@ export default function ClaimsExplorer() {
                     {/* # */}
                     <div style={{ fontSize: 11, color: S.textFaint, textAlign: "right", padding: "0 4px" }}>{c.post_id}</div>
                     {/* Badge */}
-                    <div style={{ padding: "0 4px" }}>
-                      {c.creator && <Jazzicon address={c.creator} size={16} />}
+                    <div style={{ padding: "0 6px 0 4px", display: "flex", alignItems: "center", gap: 4 }}>
+                      {c.creator && (
+                        <AddressTooltip address={c.creator}>
+                          <Jazzicon address={c.creator} size={16} />
+                        </AddressTooltip>
+                      )}
+                      {c.is_link && <Badge type="link" />}
                     </div>
-                    {/* Claim text */}
+                    {/* Claim/Link text */}
                     <div style={{
                       fontSize: 13, color: S.text, padding: "0 8px", lineHeight: 1.5,
                       overflow: "hidden", textOverflow: "ellipsis",
                       whiteSpace: isExpanded ? "normal" : "nowrap",
                       fontWeight: isExpanded ? 500 : 400,
                       minWidth: 0,
-                    }} title={c.text}>
-                      {c.text}
+                    }} title={c.is_link ? `${c.from_text} ${c.is_challenge ? "challenges" : "supports"} ${c.to_text}` : c.text}>
+                      {c.is_link ? (
+                        <>
+                          <span style={{ fontWeight: 500, color: c.is_challenge ? S.red : S.green }}>
+                            {c.is_challenge ? "Challenge" : "Support"}:
+                          </span>{" "}
+                          <span
+                            style={{ cursor: "pointer", borderBottom: `1px dotted ${S.textFaint}` }}
+                            onClick={(ev) => { ev.stopPropagation(); if (c.from_post_id) handleGoTo(c.from_post_id); }}
+                            title="Go to source claim"
+                          >"{c.from_text}"</span>{" "}
+                          <span style={{ color: S.textFaint }}>{c.is_challenge ? "challenges" : "supports"}</span>{" "}
+                          <span
+                            style={{ cursor: "pointer", borderBottom: `1px dotted ${S.textFaint}` }}
+                            onClick={(ev) => { ev.stopPropagation(); if (c.to_post_id) handleGoTo(c.to_post_id); }}
+                            title="Go to target claim"
+                          >"{c.to_text}"</span>
+                        </>
+                      ) : c.text}
                     </div>
                     {/* VS */}
                     <div style={{ display: "flex", justifyContent: "center", padding: "0 2px" }}>
@@ -606,16 +726,26 @@ export default function ClaimsExplorer() {
                       {c.stake_challenge.toFixed(1)}
                     </div>
                     {/* Links in */}
-                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 4px" }}>
-                      {c.incoming_links}
+                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 8px 0 4px" }}>
+                      {c.incoming_links || ""}
                     </div>
                     {/* Links out */}
-                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 4px" }}>
-                      {c.outgoing_links}
+                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 8px 0 4px" }}>
+                      {c.outgoing_links || ""}
                     </div>
                     {/* Controversy */}
                     <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 4px" }}>
                       {c.controversy > 0 ? c.controversy.toFixed(2) : ""}
+                    </div>
+                    {/* Topic */}
+                    <div style={{ fontSize: 10, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+                      {c.topic ? (
+                        <a href="#" onClick={e => { e.preventDefault(); e.stopPropagation();
+                          window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { topic: c.topic } }));
+                        }} style={{ color: S.blue, textDecoration: "none" }} title={`Open article: ${c.topic}`}>
+                          {c.topic}
+                        </a>
+                      ) : <span style={{ color: S.textFaint }}>—</span>}
                     </div>
                   </div>
 

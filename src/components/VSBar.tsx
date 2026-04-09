@@ -37,10 +37,14 @@ export default function VSBar({ vs, width = 56, height = 20 }: { vs: number; wid
         style={{
           position: "absolute", inset: 0,
           display: "flex", alignItems: "center",
-          justifyContent: labelInside ? "center" : "flex-start",
-          paddingLeft: labelInside ? 0 : 3,
-          fontSize: height > 16 ? 10 : 8, fontWeight: 700,
+          // When inside: center. When outside: opposite side from the fill
+          // (positive fill is on left, so label goes right; negative fill on right, label goes left)
+          justifyContent: labelInside ? "center" : (isPos ? "flex-end" : "flex-start"),
+          paddingLeft: labelInside || isPos ? 0 : 3,
+          paddingRight: labelInside || isNeg ? 0 : 3,
+          fontSize: height > 16 ? 10 : 9, fontWeight: 600,
           color: textColor, zIndex: 1, userSelect: "none",
+          whiteSpace: "nowrap" as const,
         }}
       >
         {label}

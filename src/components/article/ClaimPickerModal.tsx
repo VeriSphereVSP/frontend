@@ -56,7 +56,7 @@ export default function ClaimPickerModal({
     } catch (e) {
       // fallback to fast endpoint
       try {
-        const res = await fetch(`${API}/claims/fast/all?limit=500`);
+        const res = await fetch(`${API}/claims/fast/all?limit=500&include_links=false`);
         if (res.ok) {
           const data = await res.json();
           setClaims(data.claims || []);
@@ -356,10 +356,10 @@ export default function ClaimPickerModal({
                         flex: "3 1 0",
                         fontSize: 11,
                         color: C.text,
-                        padding: "2px 4px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        padding: "4px 4px",
+                        whiteSpace: "normal",
+                        lineHeight: 1.4,
+                        wordBreak: "break-word" as const,
                       }}
                       title={c.text}
                     >
@@ -445,8 +445,7 @@ export default function ClaimPickerModal({
             {selectedClaim ? (
               <span>
                 <strong>Selected:</strong> #{selectedClaim.post_id} —{" "}
-                {selectedClaim.text.slice(0, 50)}
-                {selectedClaim.text.length > 50 ? "…" : ""}
+                {selectedClaim.text}
                 <span
                   style={{
                     color: vc(selectedClaim.verity_score),
