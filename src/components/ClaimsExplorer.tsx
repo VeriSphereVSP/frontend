@@ -24,6 +24,7 @@ type Claim = {
   outgoing_links: number;
   topic: string;
   created_at: string | null;
+  created_epoch?: number;
   is_link?: boolean;
   from_post_id?: number;
   to_post_id?: number;
@@ -77,8 +78,20 @@ const S = {
   blueLight: "#ebf4ff",
 };
 
-const GRID = "32px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
-const LINK_GRID = "32px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
+function formatAge(ts?: number): string {
+  if (!ts) return "";
+  const secs = Math.floor(Date.now() / 1000) - ts;
+  if (secs < 60) return "now";
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+  const days = Math.floor(secs / 86400);
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
+}
+
+const GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
+const LINK_GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
 
 // ── Copyable Address Tooltip ────────────────────────
 function AddressTooltip({ address, children }: { address: string; children: React.ReactNode }) {
@@ -307,6 +320,16 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
               excludePostId={c.post_id}
               onClose={() => setShowPicker(false)}
               onPick={(picked) => {
+                // Check if this claim is already linked
+                const existing = edges.find(e => e.claim_post_id === picked.post_id);
+                if (existing) {
+                  setShowPicker(false);
+                  setLinkSearch("");
+                  setPick(null);
+                  // Navigate to the existing link's row
+                  onGoTo(existing.link_post_id);
+                  return;
+                }
                 setPick(picked);
                 setLinkSearch(picked.text);
                 setLinkResults([]);
@@ -325,6 +348,15 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                 <div key={r.post_id}
                   onClick={(ev) => {
                     ev.stopPropagation();
+                    // Check if already linked
+                    const existing = edges.find(e => e.claim_post_id === r.post_id);
+                    if (existing) {
+                      setLinkSearch("");
+                      setPick(null);
+                      setLinkResults([]);
+                      onGoTo(existing.link_post_id);
+                      return;
+                    }
                     setPick(r);
                     setLinkSearch(r.text);
                     setLinkResults([]);
@@ -418,6 +450,7 @@ function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
             >
               {/* # */}
               <div style={{ fontSize: 11, color: S.textFaint, textAlign: "right", padding: "0 4px" }}>{e.link_post_id}</div>
+              <div></div>
               {/* Badge */}
               <div style={{ padding: "0 4px" }}><Badge type="link" /></div>
               {/* Link text */}
@@ -479,6 +512,7 @@ export default function ClaimsExplorer() {
   const [filter, setFilter] = useState("");
   const [topicFilter, setTopicFilter] = useState("");
   const [showLinks, setShowLinks] = useState(true);
+  const [showEmpty, setShowEmpty] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const fetchClaims = useCallback(async () => {
@@ -515,13 +549,14 @@ export default function ClaimsExplorer() {
   const filtered = useMemo(() => {
     let list = dedupClaims;
     if (!showLinks) list = list.filter(c => !c.is_link);
+    if (!showEmpty) list = list.filter(c => c.total_stake > 0);
     if (filter.trim()) {
       const q = filter.toLowerCase();
       list = list.filter(c => c.text.toLowerCase().includes(q) || String(c.post_id).includes(q));
     }
     if (topicFilter) list = list.filter(c => c.topic === topicFilter);
     return list;
-  }, [dedupClaims, filter, topicFilter, showLinks]);
+  }, [dedupClaims, filter, topicFilter, showLinks, showEmpty]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -539,11 +574,17 @@ export default function ClaimsExplorer() {
   };
 
   const handleGoTo = (postId: number) => {
+    // Find the target post — if it's filtered out, enable the appropriate toggle
+    const target = dedupClaims.find(c => c.post_id === postId);
+    if (target) {
+      if (target.is_link && !showLinks) setShowLinks(true);
+      if (target.total_stake === 0 && !showEmpty) setShowEmpty(true);
+    }
     setExpandedId(postId);
     setTimeout(() => {
       const el = document.getElementById(`claim-row-${postId}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 100);
+    }, 150);
   };
 
   const totalStake = dedupClaims.reduce((s, c) => s + c.total_stake, 0);
@@ -553,6 +594,7 @@ export default function ClaimsExplorer() {
 
   const COLS: { key: SortKey; label: string; align?: string }[] = [
     { key: "post_id", label: "#" },
+    { key: "created_epoch" as SortKey, label: "Age" },
     { key: "text", label: "C/L" },
     { key: "text", label: "Claim / Link" },
     { key: "verity_score", label: "VS" },
@@ -613,6 +655,10 @@ export default function ClaimsExplorer() {
           <input type="checkbox" checked={showLinks} onChange={e => setShowLinks(e.target.checked)} />
           Show links
         </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: S.textMuted, cursor: "pointer" }}>
+          <input type="checkbox" checked={showEmpty} onChange={e => setShowEmpty(e.target.checked)} />
+          Show empty
+        </label>
         <span style={{ fontSize: 12, color: S.textFaint }}>
           {sorted.length} {sorted.length === 1 ? "entry" : "entries"}{filter || topicFilter || !showLinks ? " (filtered)" : ""}
         </span>
@@ -634,13 +680,24 @@ export default function ClaimsExplorer() {
           }}>
             {COLS.map((col, ci) => {
               // ci 0=#, 1=C/L, 2=Claim/Link, 3=VS, 4=Stake, 5=Sup, 6=Chal, 7=In, 8=Out, 9=Controv
-              const isLeftCol = ci <= 2;
-              const isCenterCol = ci === 3;  // VS only
-              const isRightWithPad = ci === 7 || ci === 8;  // In, Out
-              const align = isLeftCol ? "left" : isCenterCol ? "center" : "right";
+              // Columns: 0=# 1=Age 2=C/L 3=Claim 4=VS 5=Stake 6=Support 7=Challenge 8=In 9=Out 10=Controv 11=Topic
+              const align =
+                ci === 0 ? "right" :       // # — right justify
+                ci === 1 ? "right" :       // Age — right justify
+                ci === 2 ? "left" :        // C/L badge — left
+                ci === 3 ? "left" :        // Claim/Link — left
+                ci === 4 ? "left" :        // VS — left-align header so it sits over start of bar
+                ci === 8 || ci === 9 ? "right" :  // In/Out
+                ci === 11 ? "right" :      // Topic — right justify
+                "right";                    // Stake/Support/Challenge/Controv
+              const headerPad =
+                ci === 0 || ci === 1 ? "10px 8px 10px 4px" :  // # and Age extra right-pad
+                ci === 4 ? "10px 4px 10px 14px" :              // VS shift left
+                ci === 8 || ci === 9 ? "10px 10px 10px 4px" :  // In/Out right-pad
+                "10px 4px";
               return (
                 <div key={ci} onClick={() => ci > 1 ? toggleSort(col.key) : null} style={{
-                  padding: isCenterCol ? "10px 0" : isRightWithPad ? "10px 8px 10px 4px" : "10px 4px", cursor: ci > 1 ? "pointer" : "default",
+                  padding: headerPad, cursor: ci > 1 ? "pointer" : "default",
                   userSelect: "none" as const, whiteSpace: "nowrap" as const,
                   fontWeight: 600, fontSize: 10, textTransform: "uppercase" as const, letterSpacing: ".03em",
                   color: sortKey === col.key && ci > 1 ? S.blue : S.textFaint,
@@ -673,6 +730,10 @@ export default function ClaimsExplorer() {
                   >
                     {/* # */}
                     <div style={{ fontSize: 11, color: S.textFaint, textAlign: "right", padding: "0 4px" }}>{c.post_id}</div>
+                    {/* Age */}
+                    <div style={{ fontSize: 10, color: S.textFaint, textAlign: "right", padding: "0 4px" }} title={c.created_epoch ? new Date(c.created_epoch * 1000).toLocaleString() : ""}>
+                      {formatAge(c.created_epoch)}
+                    </div>
                     {/* Badge */}
                     <div style={{ padding: "0 6px 0 4px", display: "flex", alignItems: "center", gap: 4 }}>
                       {c.creator && (
@@ -726,11 +787,11 @@ export default function ClaimsExplorer() {
                       {c.stake_challenge.toFixed(1)}
                     </div>
                     {/* Links in */}
-                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 8px 0 4px" }}>
+                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 10px 0 4px" }}>
                       {c.incoming_links || ""}
                     </div>
                     {/* Links out */}
-                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 8px 0 4px" }}>
+                    <div style={{ fontSize: 11, color: S.textMuted, textAlign: "right", padding: "0 10px 0 4px" }}>
                       {c.outgoing_links || ""}
                     </div>
                     {/* Controversy */}
@@ -738,7 +799,7 @@ export default function ClaimsExplorer() {
                       {c.controversy > 0 ? c.controversy.toFixed(2) : ""}
                     </div>
                     {/* Topic */}
-                    <div style={{ fontSize: 10, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+                    <div style={{ fontSize: 10, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>
                       {c.topic ? (
                         <a href="#" onClick={e => { e.preventDefault(); e.stopPropagation();
                           window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { topic: c.topic } }));
