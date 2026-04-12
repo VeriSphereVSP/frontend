@@ -419,6 +419,11 @@ export default function App() {
         setInput(detail.topic);
         setTopic(detail.topic);
         navigate(`/topic/${encodeURIComponent(detail.topic)}`);
+      } else if (detail?.view === "claims" && detail?.postId != null) {
+        // Cross-view navigation from Portfolio → Claims
+        setView("claims");
+        // Stash target postId for Claims view to pick up on mount
+        (window as any).__claimsGoto = detail.postId;
       }
     };
     window.addEventListener("verisphere:navigate", handler);

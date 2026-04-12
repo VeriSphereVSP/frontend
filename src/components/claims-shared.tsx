@@ -189,6 +189,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
   const [showQueue, setShowQueue] = useState(false);
+  const [showLinksSection, setShowLinksSection] = useState(false);
   const [stakingLinkId, setStakingLinkId] = useState<number | null>(null);
   const { isConnected, address } = useAccount();
   const [linkSearch, setLinkSearch] = useState("");
@@ -274,6 +275,10 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
           label="Your stake on this claim:"
         />
         <span
+          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showLinksSection ? "underline" : "none" }}
+          onClick={() => setShowLinksSection(!showLinksSection)}
+        >{showLinksSection ? "Hide links" : "Links"}</span>
+        <span
           style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showQueue ? "underline" : "none" }}
           onClick={() => setShowQueue(!showQueue)}
         >{showQueue ? "Hide queues" : "Queues"}</span>
@@ -290,7 +295,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
               value={linkSearch}
               onChange={(e) => { setLinkSearch(e.target.value); if (pick) setPick(null); }}
               onClick={(e) => e.stopPropagation()}
-              placeholder="Search to link new claim…"
+              placeholder="Search claims to create new evidence link"
               style={{
                 flex: 1, padding: "5px 10px", borderRadius: 5,
                 border: `1px solid ${S.border}`, fontSize: 12, maxWidth: 320,
@@ -421,7 +426,9 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
         </div>
       )}
 
-      {/* Incoming links as rows in the same grid */}
+      {/* Incoming links — gated + scrollable */}
+      {showLinksSection && (
+      <div style={{ maxHeight: 220, overflowY: "auto" as const, border: `1px solid ${S.borderLight}`, borderRadius: 4, marginTop: 6, marginBottom: 6 }}>
       {edges.map((e) => {
         const isC = e.is_challenge;
         const linkTotal = (e.link_support ?? 0) + (e.link_challenge ?? 0);
@@ -458,8 +465,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                   {isC ? "Challenge" : "Support"}:
                 </span>{" "}
                 <span style={{ color: S.textMuted }}>"{e.claim_text}"</span>
-                <span style={{ color: S.textFaint }}>{isC ? " challenges " : " supports "}</span>
-                <span style={{ color: S.textMuted }}>"{c.text.length > 40 ? c.text.slice(0, 37) + "…" : c.text}"</span>
+                <span style={{ color: S.textFaint }}>{isC ? " challenges this claim" : " supports this claim"}</span>
               </div>
               {/* VS */}
               <div style={{ display: "flex", justifyContent: "center", padding: "0 2px" }}>
@@ -496,6 +502,8 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
         <div style={{ fontSize: 11, color: S.textFaint, fontStyle: "italic", padding: "4px 0" }}>No incoming links</div>
       )}
       {loading && <div style={{ fontSize: 11, color: S.textFaint, padding: "4px 0" }}>Loading links…</div>}
+      </div>
+      )}
     </div>
   );
 }

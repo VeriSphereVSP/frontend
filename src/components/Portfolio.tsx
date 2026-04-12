@@ -1,27 +1,31 @@
-// frontend/src/components/Portfolio.tsx
-import { useState, useEffect, useCallback } from "react";
+// frontend/src/components/Portfolio.tsx — unified with Claims view
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAccount } from "wagmi";
-import { useStake } from "@verisphere/protocol";
-import { InlineClaimCard } from "./ArticleView";
+import Jazzicon from "./Jazzicon";
 import VSBar from "./VSBar";
-import StakeControl from "./StakeControl";
-import { PlusButton } from "./article";
+import {
+  S, formatAge,
+  AddressTooltip, Badge, ExpandedClaimDetail,
+} from "./claims-shared";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+const API = import.meta.env.VITE_API_BASE || "/api";
 
-const triggerFullReindex = async (address: string) => {
-  try {
-    // Reindex all user positions
-    await fetch(`${API_BASE}/reindex/0?user=${address}`, { method: "POST" });
-  } catch (e) { /* non-fatal */ }
-};
-
-// ── Types ──────────────────────────────────────────────────
+// 12-column grid matching Claims view layout visually, with Portfolio-specific tail
+const GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 54px 44px 54px 80px";
 
 type Position = {
   post_id: number;
   post_type: "claim" | "link" | "unknown";
+  is_link?: boolean;
   text: string;
+  creator?: string;
+  topic?: string | null;
+  created_epoch?: number;
+  from_post_id?: number | null;
+  to_post_id?: number | null;
+  is_challenge?: boolean | null;
+  from_text?: string | null;
+  to_text?: string | null;
   user_support: number;
   user_challenge: number;
   user_total: number;
@@ -34,14 +38,10 @@ type Position = {
   position_status: "winning" | "losing" | "neutral" | "hedged";
   estimated_apr: number;
   apr_breakdown?: {
-    apr: number; r_min: number; r_max: number;
-    vs: number; abs_vs: number; v: number;
-    total_stake: number; s_max: number; participation: number;
-    r_base?: number; r_eff: number; is_winner: boolean;
-    tranche?: number; position_weight?: number; num_tranches?: number;
+    apr: number; total_stake: number; s_max: number;
+    participation: number; r_eff: number; is_winner: boolean;
+    position_weight?: number;
   };
-  creator?: string;
-  topic?: string;
 };
 
 type PortfolioData = {
@@ -59,739 +59,398 @@ type PortfolioData = {
   positions: Position[];
 };
 
-// ── Colors ─────────────────────────────────────────────────
-
-const C = {
-  green: "#059669",
-  greenLight: "rgba(5, 150, 105, 0.08)",
-  greenMid: "rgba(5, 150, 105, 0.15)",
-  red: "#dc2626",
-  redLight: "rgba(220, 38, 38, 0.08)",
-  redMid: "rgba(220, 38, 38, 0.15)",
-  amber: "#d97706",
-  amberLight: "rgba(217, 119, 6, 0.08)",
-  gray: "#6b7280",
-  grayLight: "#f3f4f6",
-  grayBorder: "#e5e7eb",
-  text: "#111827",
-  textMuted: "#9ca3af",
-  white: "#ffffff",
-  blue: "#3b82f6",
-  blueLight: "rgba(59, 130, 246, 0.08)",
-};
-
-// ── Helpers ────────────────────────────────────────────────
-
-function statusColor(s: string) {
-  if (s === "winning") return C.green;
-  if (s === "losing") return C.red;
-  if (s === "hedged") return C.amber;
-  return C.gray;
-}
-
-function statusBg(s: string) {
-  if (s === "winning") return C.greenLight;
-  if (s === "losing") return C.redLight;
-  if (s === "hedged") return C.amberLight;
-  return C.grayLight;
-}
-
-function statusIcon(s: string) {
-  if (s === "winning") return "▲";
-  if (s === "losing") return "▼";
-  if (s === "hedged") return "◆";
-  return "—";
-}
-
-function vsColor(vs: number) {
-  if (vs > 10) return C.green;
-  if (vs < -10) return C.red;
-  return C.gray;
-}
-
-function fmt(n: number) {
-  return n % 1 === 0 ? n.toFixed(0) : n.toFixed(2);
-}
-
-// ── Stat Card ──────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-  color,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  color?: string;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 120,
-        background: C.white,
-        border: `1px solid ${C.grayBorder}`,
-        borderRadius: 10,
-        padding: "14px 16px",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: C.gray,
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-          marginBottom: 4,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 22,
-          fontWeight: 700,
-          color: color || C.text,
-          lineHeight: 1.2,
-        }}
-      >
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Position Row ───────────────────────────────────────────
-
-function PositionRow({ pos, onRefresh }: { pos: Position; onRefresh: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const sColor = statusColor(pos.position_status);
-  const sBg = statusBg(pos.position_status);
-
-  return (
-    <div
-      style={{
-        background: C.white,
-        border: `1px solid ${C.grayBorder}`,
-        borderRadius: 10,
-        marginBottom: 8,
-        overflow: "hidden",
-      }}
-    >
-      {/* Main row */}
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 16px",
-          cursor: "pointer",
-        }}
-      >
-        {/* Status icon */}
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 14,
-            fontWeight: 700,
-            background: sBg,
-            color: sColor,
-            flexShrink: 0,
-          }}
-        >
-          {statusIcon(pos.position_status)}
-        </div>
-
-        {/* Text + type badge */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: C.text,
-              lineHeight: 1.4,
-              overflow: expanded ? "visible" : "hidden",
-              textOverflow: expanded ? "unset" : "ellipsis",
-              whiteSpace: expanded ? "normal" : "nowrap",
-            }}
-          >
-            {pos.text}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 3, fontSize: 11 }}>
-            <span
-              style={{
-                padding: "1px 6px",
-                borderRadius: 4,
-                background:
-                  pos.post_type === "link" ? C.blueLight : C.grayLight,
-                color: pos.post_type === "link" ? C.blue : C.gray,
-                fontWeight: 600,
-              }}
-            >
-              {pos.post_type === "link" ? "Link" : "Claim"}
-            </span>
-            {pos.topic && (
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { topic: pos.topic } }));
-                }}
-                style={{ fontSize: 10, color: "#2563eb", cursor: "pointer", textDecoration: "underline" }}
-                title={"View in article: " + pos.topic}
-              >
-                {pos.topic.length > 20 ? pos.topic.slice(0, 17) + "…" : pos.topic}
-              </span>
-            )}
-            <VSBar vs={pos.verity_score} width={70} height={18} />
-            {!pos.is_active && (
-              <span style={{ color: C.amber, fontWeight: 600 }}>Inactive</span>
-            )}
-          </div>
-        </div>
-
-        {/* Stake amounts + APR */}
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-            {fmt(pos.user_total)} VSP
-          </div>
-          <div style={{ fontSize: 11, color: sColor, fontWeight: 600 }}>
-            {pos.position_status.charAt(0).toUpperCase() +
-              pos.position_status.slice(1)}
-          </div>
-          {
-            pos.estimated_apr !== undefined &&
-            pos.estimated_apr !== 0 && (
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  marginTop: 1,
-                  color: pos.estimated_apr > 0 ? C.green : C.red,
-                }}
-              >
-                {pos.estimated_apr > 0 ? "+" : ""}
-                {pos.estimated_apr.toFixed(1)}% APR
-              </div>
-            )}
-          {pos.apr_breakdown && expanded && (
-            <div style={{ fontSize: 9, color: C.textMuted, marginTop: 2, lineHeight: 1.6, textAlign: "right" }}>
-              <div>Truth Pressure: {pos.apr_breakdown.abs_vs.toFixed(1)}%</div>
-              <div>Post Size: {pos.apr_breakdown.total_stake.toFixed(1)} / {pos.apr_breakdown.s_max.toFixed(1)}</div>
-              <div>Queue Position: {(pos.apr_breakdown.tranche ?? 0) + 1} of {pos.apr_breakdown.num_tranches ?? 10} ({((pos.apr_breakdown.position_weight ?? 1) * 100).toFixed(0)}%)</div>
-            </div>
-          )}
-        </div>
-
-        {/* Expand chevron */}
-        <span
-          style={{
-            fontSize: 14,
-            color: C.textMuted,
-            flexShrink: 0,
-            transition: "transform 0.2s",
-            transform: expanded ? "rotate(90deg)" : "none",
-          }}
-        >
-          ›
-        </span>
-      </div>
-
-      {/* Expanded detail — compact */}
-      {expanded && pos.superseded_by && (
-        <SupersedePanel
-          supersedeInfo={pos.superseded_by}
-          userSupport={pos.user_support}
-          userChallenge={pos.user_challenge}
-          address={address || ""}
-          onDone={fetchPortfolio}
-        />
-      )}
-      {expanded && (
-        <div
-          style={{
-            borderTop: `1px solid ${C.grayBorder}`,
-            padding: "10px 16px 12px",
-            background: "#fafafa",
-          }}
-        >
-          <div style={{ marginLeft: 44, paddingLeft: 12, borderLeft: "2px solid " + C.grayBorder }}>
-
-          {/* Claim/link actions: stake, unstake, link */}
-          <InlineClaimCard
-            postId={pos.post_id}
-            text={pos.text}
-            stakeSupport={pos.pool_support}
-            stakeChallenge={pos.pool_challenge}
-            verityScore={pos.verity_score}
-            postType={pos.post_type === "link" ? "link" : "claim"}
-            onRefresh={onRefresh}
-          />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Filter Tabs ────────────────────────────────────────────
-
 type Filter = "all" | "winning" | "losing" | "claims" | "links";
+type SortKey = "post_id" | "created_epoch" | "text" | "verity_score" | "pool_total" | "pool_support" | "pool_challenge" | "user_total" | "position_status" | "estimated_apr" | "topic";
+type SortDir = "asc" | "desc";
 
-function FilterTabs({
-  active,
-  counts,
-  onChange,
-}: {
-  active: Filter;
-  counts: Record<Filter, number>;
-  onChange: (f: Filter) => void;
-}) {
-  const tabs: { key: Filter; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "winning", label: "Winning" },
-    { key: "losing", label: "Losing" },
-    { key: "claims", label: "Claims" },
-    { key: "links", label: "Links" },
-  ];
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 4,
-        marginBottom: 12,
-        flexWrap: "wrap",
-      }}
-    >
-      {tabs.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => onChange(t.key)}
-          style={{
-            padding: "5px 12px",
-            borderRadius: 20,
-            fontSize: 12,
-            fontWeight: 600,
-            border:
-              active === t.key
-                ? `1px solid ${C.text}`
-                : `1px solid ${C.grayBorder}`,
-            background: active === t.key ? C.text : C.white,
-            color: active === t.key ? C.white : C.gray,
-            cursor: "pointer",
-          }}
-        >
-          {t.label} ({counts[t.key]})
-        </button>
-      ))}
-    </div>
-  );
+interface PortfolioProps {
+  onBack?: () => void;
 }
 
-// ── Main Component ─────────────────────────────────────────
-
-
-// ── Supersede Notification Panel ──────────────────────────
-function SupersedePanel({
-  supersedeInfo,
-  userSupport,
-  userChallenge,
-  address,
-  onDone,
-}: {
-  supersedeInfo: { supersede_id: number; new_post_id: number; new_text: string; created_by: string };
-  userSupport: number;
-  userChallenge: number;
-  address: string;
-  onDone: () => void;
-}) {
-  const [acting, setActing] = useState(false);
-  const { stake, withdraw } = useStake();
-
-  const respond = async (response: "accept" | "reject") => {
-    setActing(true);
-    try {
-      if (response === "accept") {
-        // Move stake: withdraw from old, stake on new (same side, same amount)
-        const oldPostId = supersedeInfo.supersede_id; // We need the old_post_id, not supersede_id
-        // Actually we need to get old_post_id from the position itself
-        // The withdraw/stake will be done by the caller passing the right post_ids
-      }
-      await fetch(`${API_BASE}/supersedes/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          supersede_id: supersedeInfo.supersede_id,
-          user_address: address,
-          response,
-        }),
-      });
-      onDone();
-    } catch (e) {
-      console.error("Supersede response failed:", e);
-    } finally {
-      setActing(false);
-    }
-  };
-
-  return (
-    <div
-      style={{
-        margin: "8px 16px",
-        padding: "10px 12px",
-        background: "#fffbeb",
-        border: "1px solid #fcd34d",
-        borderRadius: 8,
-        fontSize: 12,
-      }}
-    >
-      <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
-        📝 An updated version of this claim exists
-      </div>
-      <div style={{ color: "#78350f", marginBottom: 6, lineHeight: 1.5 }}>
-        <span style={{ fontWeight: 600 }}>New version:</span> {supersedeInfo.new_text}
-      </div>
-      <div style={{ color: "#92400e", marginBottom: 8, fontSize: 11 }}>
-        Your stake: {userSupport > 0 ? `${userSupport.toFixed(2)} VSP support` : `${userChallenge.toFixed(2)} VSP challenge`}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={() => respond("accept")}
-          disabled={acting}
-          style={{
-            padding: "5px 14px",
-            borderRadius: 6,
-            border: "none",
-            background: "#059669",
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: acting ? "default" : "pointer",
-            opacity: acting ? 0.6 : 1,
-          }}
-        >
-          {acting ? "Moving…" : "Move stake to new version"}
-        </button>
-        <button
-          onClick={() => respond("reject")}
-          disabled={acting}
-          style={{
-            padding: "5px 14px",
-            borderRadius: 6,
-            border: "1px solid #d1d5db",
-            background: "#fff",
-            color: "#6b7280",
-            fontSize: 12,
-            cursor: acting ? "default" : "pointer",
-            opacity: acting ? 0.6 : 1,
-          }}
-        >
-          Dismiss
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function Portfolio({ onBack }: { onBack?: () => void }) {
-  const { address, isConnected } = useAccount();
+export default function Portfolio({ onBack }: PortfolioProps) {
+  const { address: connectedAddress, isConnected } = useAccount();
+  const [subjectAddress, setSubjectAddress] = useState<string>("");
+  const [addressInput, setAddressInput] = useState<string>("");
   const [data, setData] = useState<PortfolioData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  const [hideDust, setHideDust] = useState(true);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("user_total");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const fetchPortfolio = useCallback(async () => {
-    if (!address) return;
+  useEffect(() => {
+    if (connectedAddress) {
+      setSubjectAddress(connectedAddress);
+      setAddressInput(connectedAddress);
+    }
+  }, [connectedAddress]);
+
+  const loadPortfolio = useCallback(async () => {
+    if (!subjectAddress) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/portfolio/fast/${address}`);
+      const res = await fetch(`${API}/portfolio/fast/${subjectAddress}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
+      const d = await res.json();
+      // Fudge user_total to match live staking-section value (projected on-chain)
+      await Promise.all(d.positions.map(async (p: Position) => {
+        try {
+          const r = await fetch(`${API}/claims/${p.post_id}/user-stake?user=${subjectAddress}`);
+          if (r.ok) {
+            const live = await r.json();
+            const liveSup = Number(live.user_support) || 0;
+            const liveChal = Number(live.user_challenge) || 0;
+            p.user_support = liveSup;
+            p.user_challenge = liveChal;
+            p.user_total = liveSup + liveChal;
+          }
+        } catch { /* keep indexed values */ }
+      }));
+      setData(d);
     } catch (e: any) {
       setError(e.message || "Failed to load portfolio");
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [subjectAddress]);
 
-  useEffect(() => {
-    if (isConnected && address) fetchPortfolio();
-  }, [isConnected, address, fetchPortfolio]);
+  useEffect(() => { loadPortfolio(); }, [loadPortfolio]);
 
-  if (!isConnected) {
+  const handleAddressBlur = () => {
+    const trimmed = addressInput.trim();
+    if (!trimmed) {
+      setAddressInput(connectedAddress || "");
+      setSubjectAddress(connectedAddress || "");
+    } else if (trimmed.toLowerCase() !== subjectAddress.toLowerCase()) {
+      setSubjectAddress(trimmed);
+    }
+  };
+
+  const goToClaims = (postId: number) => {
+    window.dispatchEvent(new CustomEvent("verisphere:navigate", {
+      detail: { view: "claims", postId },
+    }));
+  };
+
+  const goToTopic = (topic: string) => {
+    window.dispatchEvent(new CustomEvent("verisphere:navigate", {
+      detail: { topic },
+    }));
+  };
+
+  const positions = data?.positions || [];
+
+  const filtered = useMemo(() => {
+    let list = positions;
+    if (filter === "winning") list = list.filter(p => p.position_status === "winning");
+    else if (filter === "losing") list = list.filter(p => p.position_status === "losing");
+    else if (filter === "claims") list = list.filter(p => !p.is_link);
+    else if (filter === "links") list = list.filter(p => p.is_link);
+    return list;
+  }, [positions, filter]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const av = (a as any)[sortKey];
+      const bv = (b as any)[sortKey];
+      if (typeof av === "string") {
+        return sortDir === "asc"
+          ? String(av || "").localeCompare(String(bv || ""))
+          : String(bv || "").localeCompare(String(av || ""));
+      }
+      const na = Number(av) || 0, nb = Number(bv) || 0;
+      return sortDir === "asc" ? na - nb : nb - na;
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
+      setSortKey(key);
+      setSortDir(key === "text" || key === "topic" || key === "position_status" ? "asc" : "desc");
+    }
+  };
+
+  const counts = useMemo(() => ({
+    all: positions.length,
+    winning: positions.filter(p => p.position_status === "winning").length,
+    losing: positions.filter(p => p.position_status === "losing").length,
+    claims: positions.filter(p => !p.is_link).length,
+    links: positions.filter(p => p.is_link).length,
+  }), [positions]);
+
+  if (!isConnected && !subjectAddress) {
     return (
-      <div
-        style={{
-          textAlign: "center",
-          padding: "60px 20px",
-          color: C.textMuted,
-          fontSize: 15,
-        }}
-      >
+      <div style={{ padding: 40, textAlign: "center", color: S.textMuted }}>
         Connect your wallet to view your portfolio.
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          textAlign: "center",
-          padding: "60px 20px",
-          color: C.textMuted,
-          fontSize: 14,
-        }}
-      >
-        Loading positions…
-      </div>
-    );
-  }
+  const summary = data?.summary;
+  const winPct = summary && summary.total_staked > 0
+    ? (summary.total_support / summary.total_staked) * 100 : 0;
 
-  if (error) {
-    return (
-      <div
-        style={{
-          textAlign: "center",
-          padding: "40px 20px",
-        }}
-      >
-        <div style={{ color: C.red, marginBottom: 10 }}>{error}</div>
-        <button
-          className="btn btn-primary"
-          onClick={fetchPortfolio}
-          style={{ fontSize: 13 }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (!data) return null;
-
-  const { summary, positions } = data;
-
-  // Compute filter counts
-  const counts: Record<Filter, number> = {
-    all: positions.length,
-    winning: positions.filter((p) => p.position_status === "winning").length,
-    losing: positions.filter((p) => p.position_status === "losing").length,
-    claims: positions.filter((p) => p.post_type === "claim").length,
-    links: positions.filter((p) => p.post_type === "link").length,
-  };
-
-  // Apply filter
-  const filtered = positions.filter((p) => {
-    if (filter === "all") return true;
-    if (filter === "winning") return p.position_status === "winning";
-    if (filter === "losing") return p.position_status === "losing";
-    if (filter === "claims") return p.post_type === "claim";
-    if (filter === "links") return p.post_type === "link";
-    return true;
-  });
-
-  // Also filter from counts
-  const dustCount = positions.filter((p) => p.user_total < 0.01).length;
+  const COLS: { key: SortKey; label: string; align: "left" | "right"; padRight?: number; padLeft?: number }[] = [
+    { key: "post_id", label: "#", align: "right", padRight: 8 },
+    { key: "created_epoch", label: "Age", align: "right", padRight: 8 },
+    { key: "text", label: "C/L", align: "left" },
+    { key: "text", label: "Claim / Link", align: "left" },
+    { key: "verity_score", label: "VS", align: "left", padLeft: 14 },
+    { key: "pool_total", label: "Stake", align: "right" },
+    { key: "pool_support", label: "Support", align: "right" },
+    { key: "pool_challenge", label: "Challenge", align: "right" },
+    { key: "user_total", label: "Yours", align: "right" },
+    { key: "position_status", label: "Status", align: "right", padRight: 6 },
+    { key: "estimated_apr", label: "APR", align: "right", padRight: 10 },
+    { key: "topic", label: "Topic", align: "right", padRight: 6 },
+  ];
 
   return (
-    <div style={{ maxWidth: 700, margin: "0 auto", display: "flex", flexDirection: "column" as const, flex: 1, minHeight: 0, overflow: "hidden" }}>
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, padding: "16px 24px", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {onBack && (
-          <button
-            onClick={onBack}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: 18,
-              color: C.gray,
-              cursor: "pointer",
-              padding: "4px 8px",
-            }}
-          >
-            ←
-          </button>
+          <button onClick={onBack} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: S.textMuted }}>←</button>
         )}
-        <div>
-          <h2
+        <div style={{ flex: 1 }}>
+          <h1 style={{ margin: 0, fontSize: 22, color: S.text }}>Portfolio</h1>
+          <input
+            value={addressInput}
+            onChange={e => setAddressInput(e.target.value)}
+            onBlur={handleAddressBlur}
+            onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             style={{
-              margin: 0,
-              fontSize: 18,
-              fontWeight: 700,
-              color: C.text,
+              fontSize: 11, color: S.textMuted, border: "none", background: "transparent",
+              padding: "2px 0", fontFamily: "monospace", width: 360, outline: "none",
+              borderBottom: `1px dashed ${S.border}`,
             }}
-          >
-            Portfolio
-          </h2>
-          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
-            {address?.slice(0, 6)}…{address?.slice(-4)}
-          </div>
+            placeholder="0x..."
+          />
         </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={fetchPortfolio}
-            style={{
-              background: "none",
-              border: `1px solid ${C.grayBorder}`,
-              borderRadius: 6,
-              padding: "5px 12px",
-              fontSize: 11,
-              fontWeight: 600,
-              color: C.gray,
-              cursor: "pointer",
-            }}
-          >
-            ↻ Refresh
-          </button>
-          {isConnected && <PlusButton onDone={fetchPortfolio} />}
-        </div>
+        <button onClick={loadPortfolio} style={{
+          padding: "6px 12px", borderRadius: 5, border: `1px solid ${S.border}`,
+          background: "#fff", fontSize: 12, cursor: "pointer", color: S.textMuted,
+        }}>⟲ Refresh</button>
       </div>
 
-      {/* Summary cards */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <StatCard
-          label="Total Staked"
-          value={`${fmt(summary.total_staked)} VSP`}
-          sub={`${summary.winning_count + summary.losing_count + summary.neutral_count} positions`}
-        />
-        <StatCard
-          label="Winning"
-          value={String(summary.winning_count)}
-          color={summary.winning_count > 0 ? C.green : C.gray}
-          sub={`${fmt(summary.total_support)} support`}
-        />
-        <StatCard
-          label="Losing"
-          value={String(summary.losing_count)}
-          color={summary.losing_count > 0 ? C.red : C.gray}
-          sub={`${fmt(summary.total_challenge)} challenge`}
-        />
-        <StatCard
-          label="Overall APR"
-          value={`${summary.weighted_apr > 0 ? "+" : ""}${(summary.weighted_apr ?? 0).toFixed(1)}%`}
-          color={summary.weighted_apr > 0 ? C.green : summary.weighted_apr < 0 ? C.red : C.gray}
-          sub="weighted average"
-        />
-      </div>
-
-      {/* Win/loss ratio bar */}
-      {data.position_count > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div
-            style={{
-              height: 8,
-              borderRadius: 4,
-              background: C.grayLight,
-              overflow: "hidden",
-              display: "flex",
-            }}
-          >
-            {summary.winning_count > 0 && (
-              <div
-                style={{
-                  height: "100%",
-                  width: `${(summary.winning_count / data.position_count) * 100}%`,
-                  background: C.green,
-                }}
-              />
-            )}
-            {summary.neutral_count > 0 && (
-              <div
-                style={{
-                  height: "100%",
-                  width: `${(summary.neutral_count / data.position_count) * 100}%`,
-                  background: C.grayBorder,
-                }}
-              />
-            )}
-            {summary.losing_count > 0 && (
-              <div
-                style={{
-                  height: "100%",
-                  width: `${(summary.losing_count / data.position_count) * 100}%`,
-                  background: C.red,
-                }}
-              />
-            )}
+      {summary && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            <StatBox label="TOTAL STAKED" value={`${summary.total_staked.toFixed(2)} VSP`} sub={`${positions.length} positions`} />
+            <StatBox label="WINNING" value={String(summary.winning_count)} sub={`${summary.total_support.toFixed(2)} support`} color={S.green} />
+            <StatBox label="LOSING" value={String(summary.losing_count)} sub={`${summary.total_challenge.toFixed(2)} challenge`} color={S.red} />
+            <StatBox label="OVERALL APR" value={`${summary.weighted_apr > 0 ? "+" : ""}${summary.weighted_apr.toFixed(1)}%`} sub="weighted average" color={summary.weighted_apr > 0 ? S.green : S.red} />
           </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: 10,
-              color: C.textMuted,
-              marginTop: 3,
-            }}
-          >
-            <span>
-              {((summary.winning_count / data.position_count) * 100).toFixed(0)}
-              % winning
-            </span>
-            <span>
-              {((summary.losing_count / data.position_count) * 100).toFixed(0)}%
-              losing
-            </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ height: 6, background: S.borderLight, borderRadius: 3, overflow: "hidden", display: "flex" }}>
+              <div style={{ width: `${winPct}%`, background: S.green }} />
+              <div style={{ flex: 1, background: S.red }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: S.textFaint }}>
+              <span>{winPct.toFixed(0)}% winning</span>
+              <span>{(100 - winPct).toFixed(0)}% losing</span>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Filter tabs */}
-      <FilterTabs active={filter} counts={counts} onChange={setFilter} />
-
-      {/* Positions list — scrollable */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, paddingRight: 4 }}>
-      {filtered.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "40px 20px",
-            color: C.textMuted,
-            fontSize: 13,
-            background: C.white,
-            borderRadius: 10,
-            border: `1px solid ${C.grayBorder}`,
-          }}
-        >
-          {data.position_count === 0
-            ? "No staking positions yet. Explore topics and stake on claims to get started."
-            : "No positions match this filter."}
-        </div>
-      ) : (
-        filtered.map((pos) => <PositionRow key={pos.post_id} pos={pos} onRefresh={() => { window.dispatchEvent(new Event("verisphere:data-changed")); setTimeout(fetchPortfolio, 2000); }} />)
-      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["all", "winning", "losing", "claims", "links"] as Filter[]).map(f => (
+          <button key={f} onClick={() => setFilter(f)} style={{
+            padding: "5px 12px", borderRadius: 5, border: `1px solid ${filter === f ? S.text : S.border}`,
+            background: filter === f ? S.text : "#fff",
+            color: filter === f ? "#fff" : S.textMuted,
+            fontSize: 12, cursor: "pointer", textTransform: "capitalize" as const,
+          }}>{f} ({counts[f]})</button>
+        ))}
       </div>
+
+      {loading && <div style={{ padding: 20, color: S.textMuted }}>Loading…</div>}
+      {error && <div style={{ padding: 20, color: S.red }}>{error}</div>}
+      {!loading && !error && (
+        <div style={{ flex: 1, overflowY: "auto", border: `1px solid ${S.border}`, borderRadius: 6, background: "#fff" }}>
+          {/* Header row */}
+          <div style={{
+            display: "grid", gridTemplateColumns: GRID,
+            background: S.bgAlt, borderBottom: `1px solid ${S.border}`,
+            fontSize: 9, fontWeight: 600, color: S.textMuted,
+            textTransform: "uppercase" as const, letterSpacing: 0.5,
+            position: "sticky" as const, top: 0, zIndex: 10,
+          }}>
+            {COLS.map((col, ci) => {
+              const padRight = col.padRight ?? 4;
+              const padLeft = col.padLeft ?? 4;
+              const isActive = sortKey === col.key && ci > 2;  // # and C/L non-sortable
+              return (
+                <div key={ci}
+                  onClick={() => ci > 2 && toggleSort(col.key)}
+                  style={{
+                    padding: `10px ${padRight}px 10px ${padLeft}px`,
+                    textAlign: col.align,
+                    cursor: ci > 2 ? "pointer" : "default",
+                    color: isActive ? S.blue : S.textMuted,
+                    userSelect: "none" as const,
+                  }}>
+                  {col.label}
+                  {isActive && <span style={{ marginLeft: 2, fontSize: 9 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {sorted.length === 0 && (
+            <div style={{ padding: 30, textAlign: "center", color: S.textFaint, fontSize: 13 }}>
+              No positions match this filter.
+            </div>
+          )}
+
+          {sorted.map(p => {
+            const isExpanded = expandedId === p.post_id;
+            const statusColor = p.position_status === "winning" ? S.green :
+                                p.position_status === "losing" ? S.red : S.textMuted;
+            // Display pool total floored at sMax so participation never visually exceeds 100%
+            const smax = p.apr_breakdown?.s_max || p.pool_total;
+            const displayedPoolTotal = Math.min(p.pool_total, smax);
+            return (
+              <div key={p.post_id} id={`portfolio-row-${p.post_id}`}>
+                <div
+                  onClick={() => setExpandedId(isExpanded ? null : p.post_id)}
+                  style={{
+                    display: "grid", gridTemplateColumns: GRID,
+                    borderBottom: `1px solid ${S.borderLight}`, alignItems: "center",
+                    cursor: "pointer", background: isExpanded ? S.bgExpanded : "#fff", fontSize: 12,
+                  }}
+                  onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = S.bgHover; }}
+                  onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "#fff"; }}
+                >
+                  <div style={{ fontSize: 11, color: S.textFaint, textAlign: "right", padding: "8px 8px 8px 4px" }}>{p.post_id}</div>
+                  <div style={{ fontSize: 10, color: S.textFaint, textAlign: "right", padding: "8px 8px 8px 4px" }}>
+                    {formatAge(p.created_epoch)}
+                  </div>
+                  <div style={{ padding: "0 6px 0 4px", display: "flex", alignItems: "center", gap: 4 }}>
+                    {p.creator && (
+                      <AddressTooltip address={p.creator}>
+                        <Jazzicon address={p.creator} size={16} />
+                      </AddressTooltip>
+                    )}
+                    {p.is_link && <Badge type="link" />}
+                  </div>
+                  <div style={{
+                    padding: "8px 4px", color: S.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const,
+                  }} title={p.text}>
+                    {p.is_link && p.from_text && p.to_text ? (
+                      <>
+                        <span style={{ color: p.is_challenge ? S.red : S.green, fontWeight: 500 }}>
+                          {p.is_challenge ? "Challenge: " : "Support: "}
+                        </span>
+                        "{p.from_text}" {p.is_challenge ? "challenges" : "supports"} "{p.to_text}"
+                      </>
+                    ) : p.text}
+                  </div>
+                  <div style={{ padding: "0 4px 0 14px" }}>
+                    <VSBar vs={p.verity_score} />
+                  </div>
+                  <div style={{ padding: "8px 4px", textAlign: "right", color: S.text }}>
+                    {displayedPoolTotal.toFixed(1)}
+                  </div>
+                  <div style={{ padding: "8px 4px", textAlign: "right", color: p.pool_support > 0 ? S.green : S.textFaint }}>
+                    {p.pool_support > 0 ? p.pool_support.toFixed(1) : "—"}
+                  </div>
+                  <div style={{ padding: "8px 4px", textAlign: "right", color: p.pool_challenge > 0 ? S.red : S.textFaint }}>
+                    {p.pool_challenge > 0 ? p.pool_challenge.toFixed(1) : "—"}
+                  </div>
+                  <div style={{ padding: "8px 4px", textAlign: "right", fontWeight: 500, color: S.text }}>
+                    {p.user_total.toFixed(2)}
+                  </div>
+                  <div style={{ padding: "8px 6px 8px 4px", textAlign: "right", color: statusColor, fontSize: 10, fontWeight: 600, textTransform: "uppercase" as const }}>
+                    {p.position_status === "winning" ? "WIN" :
+                     p.position_status === "losing" ? "LOSE" :
+                     p.position_status === "hedged" ? "HDG" : "—"}
+                  </div>
+                  <div style={{ padding: "8px 10px 8px 4px", textAlign: "right", color: p.estimated_apr > 0 ? S.green : p.estimated_apr < 0 ? S.red : S.textFaint, fontWeight: 500 }}>
+                    {p.estimated_apr > 0 ? "+" : ""}{p.estimated_apr.toFixed(1)}%
+                  </div>
+                  <div style={{ padding: "8px 6px", textAlign: "right", fontSize: 10,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                    {p.topic ? (
+                      <a href="#" onClick={e => { e.preventDefault(); e.stopPropagation(); goToTopic(p.topic!); }}
+                         style={{ color: S.blue, textDecoration: "none" }} title={`Open article: ${p.topic}`}>
+                        {p.topic}
+                      </a>
+                    ) : <span style={{ color: S.textFaint }}>—</span>}
+                  </div>
+                </div>
+                {isExpanded && (
+                  <>
+                    <div style={{
+                      padding: "6px 16px 6px 96px",
+                      background: S.bgExpanded,
+                      fontSize: 11, color: S.textMuted,
+                      display: "flex", gap: 18,
+                      borderBottom: `1px solid ${S.borderLight}`,
+                    }}>
+                      <span style={{ color: statusColor, fontWeight: 600, textTransform: "capitalize" as const }}>
+                        {p.position_status}
+                      </span>
+                      <span>
+                        <span style={{ color: p.estimated_apr >= 0 ? S.green : S.red, fontWeight: 500 }}>
+                          {p.estimated_apr >= 0 ? "+" : ""}{p.estimated_apr.toFixed(1)}%
+                        </span> APR
+                      </span>
+                      <span>
+                        Size: {displayedPoolTotal.toFixed(1)} / {(p.apr_breakdown?.s_max || 0).toFixed(1)}
+                      </span>
+                      <span>
+                        Position: {((p.apr_breakdown?.position_weight || 0) * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <ExpandedClaimDetail
+                      claim={{
+                        post_id: p.post_id,
+                        text: p.text,
+                        creator: p.creator,
+                        verity_score: p.verity_score,
+                        base_vs: p.verity_score,
+                        stake_support: p.pool_support,
+                        stake_challenge: p.pool_challenge,
+                        total_stake: displayedPoolTotal,
+                        controversy: 0,
+                        incoming_links: 0,
+                        outgoing_links: 0,
+                        topic: p.topic || "",
+                        created_at: null,
+                        created_epoch: p.created_epoch,
+                        is_link: p.is_link,
+                        from_post_id: p.from_post_id ?? undefined,
+                        to_post_id: p.to_post_id ?? undefined,
+                        is_challenge: p.is_challenge ?? undefined,
+                        from_text: p.from_text ?? undefined,
+                        to_text: p.to_text ?? undefined,
+                      }}
+                      onRefresh={loadPortfolio}
+                      onClose={() => setExpandedId(null)}
+                      onGoTo={goToClaims}
+                    />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatBox({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div style={{ padding: "12px 16px", border: `1px solid ${S.border}`, borderRadius: 6, background: "#fff" }}>
+      <div style={{ fontSize: 9, color: S.textMuted, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: color || S.text, marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: S.textFaint, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }

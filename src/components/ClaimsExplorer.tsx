@@ -90,6 +90,15 @@ export default function ClaimsExplorer() {
     else { setSortKey(key); setSortDir(key === "text" || key === "topic" ? "asc" : "desc"); }
   };
 
+  // Pick up cross-view navigation target on mount
+  useEffect(() => {
+    const pending = (window as any).__claimsGoto;
+    if (pending != null && dedupClaims.length > 0) {
+      (window as any).__claimsGoto = undefined;
+      setTimeout(() => handleGoTo(pending), 200);
+    }
+  }, [dedupClaims.length]);
+
   const handleGoTo = (postId: number) => {
     // Find the target post — if it's filtered out, enable the appropriate toggle
     const target = dedupClaims.find(c => c.post_id === postId);
