@@ -189,7 +189,8 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
   const [showQueue, setShowQueue] = useState(false);
-  const [showLinksSection, setShowLinksSection] = useState(false);
+  const [linksMode, setLinksMode] = useState<"none" | "incoming" | "outgoing">("none");
+  const [outgoingEdges, setOutgoingEdges] = useState<Edge[]>([]);
   const [stakingLinkId, setStakingLinkId] = useState<number | null>(null);
   const { isConnected, address } = useAccount();
   const [linkSearch, setLinkSearch] = useState("");
@@ -204,8 +205,12 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
 
   const refreshEdges = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/claims/${c.post_id}/edges?direction=incoming`).then(r => r.json());
-      setEdges(res.incoming || []);
+      const [incRes, outRes] = await Promise.all([
+        fetch(`${API}/claims/${c.post_id}/edges?direction=incoming`).then(r => r.json()),
+        fetch(`${API}/claims/${c.post_id}/edges?direction=outgoing`).then(r => r.json()),
+      ]);
+      setEdges(incRes.incoming || []);
+      setOutgoingEdges(outRes.outgoing || []);
     } catch {}
     setLoading(false);
   }, [c.post_id]);
@@ -229,14 +234,18 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
     try {
       setLinking(true);
       // Create the link (MetaMask will prompt for signature)
-      const txHash = await createLink(pick.post_id, c.post_id, linkType === "challenge");
+      const [fromId, toId] = linksMode === "outgoing"
+        ? [c.post_id, pick.post_id]
+        : [pick.post_id, c.post_id];
+      const txHash = await createLink(fromId, toId, linkType === "challenge");
       const amt = parseFloat(linkStake);
       // Stake on the new link after it's indexed
       if (amt > 0 && txHash) {
         setTimeout(async () => {
           try {
-            const res = await fetch(`${API}/claims/${c.post_id}/edges?direction=incoming`).then(r => r.json());
-            const newEdges = res.incoming || [];
+            const direction = linksMode === "outgoing" ? "outgoing" : "incoming";
+            const res = await fetch(`${API}/claims/${c.post_id}/edges?direction=${direction}`).then(r => r.json());
+            const newEdges = (direction === "outgoing" ? res.outgoing : res.incoming) || [];
             const newLink = newEdges.find((e: any) =>
               e.claim_post_id === pick.post_id && e.is_challenge === (linkType === "challenge")
             );
@@ -275,9 +284,13 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
           label="Your stake on this claim:"
         />
         <span
-          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showLinksSection ? "underline" : "none" }}
-          onClick={() => setShowLinksSection(!showLinksSection)}
-        >{showLinksSection ? "Hide links" : "Links"}</span>
+          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: linksMode === "incoming" ? "underline" : "none" }}
+          onClick={() => setLinksMode(linksMode === "incoming" ? "none" : "incoming")}
+        >Incoming Links</span>
+        <span
+          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: linksMode === "outgoing" ? "underline" : "none" }}
+          onClick={() => setLinksMode(linksMode === "outgoing" ? "none" : "outgoing")}
+        >Outgoing Links</span>
         <span
           style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showQueue ? "underline" : "none" }}
           onClick={() => setShowQueue(!showQueue)}
@@ -295,10 +308,12 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
               value={linkSearch}
               onChange={(e) => { setLinkSearch(e.target.value); if (pick) setPick(null); }}
               onClick={(e) => e.stopPropagation()}
-              placeholder="Search claims to create new evidence link"
+              placeholder={linksMode === "outgoing"
+              ? "Search to create a new link that this claim is evidence for/against"
+              : "Search to create a new evidence link for/against this claim"}
               style={{
                 flex: 1, padding: "5px 10px", borderRadius: 5,
-                border: `1px solid ${S.border}`, fontSize: 12, maxWidth: 320,
+                border: `1px solid ${S.border}`, fontSize: 12, maxWidth: 500,
               }}
             />
             <span
@@ -426,10 +441,10 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
         </div>
       )}
 
-      {/* Incoming links — gated + scrollable */}
-      {showLinksSection && (
+      {/* Links section — gated + scrollable, choose direction */}
+      {linksMode !== "none" && (
       <div style={{ maxHeight: 220, overflowY: "auto" as const, border: `1px solid ${S.borderLight}`, borderRadius: 4, marginTop: 6, marginBottom: 6 }}>
-      {edges.map((e) => {
+      {(linksMode === "incoming" ? edges : outgoingEdges).map((e) => {
         const isC = e.is_challenge;
         const linkTotal = (e.link_support ?? 0) + (e.link_challenge ?? 0);
         const linkVS = e.link_vs ?? 0;
@@ -464,8 +479,17 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                 <span style={{ fontWeight: 500, color: isC ? S.red : S.green }}>
                   {isC ? "Challenge" : "Support"}:
                 </span>{" "}
-                <span style={{ color: S.textMuted }}>"{e.claim_text}"</span>
-                <span style={{ color: S.textFaint }}>{isC ? " challenges this claim" : " supports this claim"}</span>
+                {linksMode === "outgoing" ? (
+                  <>
+                    <span style={{ color: S.textFaint }}>This claim{isC ? " challenges " : " supports "}</span>
+                    <span style={{ color: S.textMuted }}>"{e.claim_text}"</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: S.textMuted }}>"{e.claim_text}"</span>
+                    <span style={{ color: S.textFaint }}>{isC ? " challenges this claim" : " supports this claim"}</span>
+                  </>
+                )}
               </div>
               {/* VS */}
               <div style={{ display: "flex", justifyContent: "center", padding: "0 2px" }}>
@@ -498,8 +522,10 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
         );
       })}
 
-      {edges.length === 0 && !loading && !c.is_link && (
-        <div style={{ fontSize: 11, color: S.textFaint, fontStyle: "italic", padding: "4px 0" }}>No incoming links</div>
+      {(linksMode === "incoming" ? edges : outgoingEdges).length === 0 && !loading && !c.is_link && (
+        <div style={{ fontSize: 11, color: S.textFaint, fontStyle: "italic", padding: "4px 0" }}>
+          No {linksMode === "incoming" ? "incoming" : "outgoing"} links
+        </div>
       )}
       {loading && <div style={{ fontSize: 11, color: S.textFaint, padding: "4px 0" }}>Loading links…</div>}
       </div>

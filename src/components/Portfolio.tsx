@@ -339,7 +339,10 @@ export default function Portfolio({ onBack }: PortfolioProps) {
                   </div>
                   <div style={{
                     padding: "8px 4px", color: S.text,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const,
+                    overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: (isExpanded ? "normal" : "nowrap") as const,
+                    fontWeight: isExpanded ? 500 : 400,
+                    minWidth: 0,
                   }} title={p.text}>
                     {p.is_link && p.from_text && p.to_text ? (
                       <>
