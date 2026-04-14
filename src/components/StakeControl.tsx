@@ -36,8 +36,9 @@ export default function StakeControl({
   const { address } = useAccount();
   const [liveSup, setLiveSup] = useState(currentSupport);
   const [liveChal, setLiveChal] = useState(currentChallenge);
+  const [balance, setBalance] = useState<number | null>(null);
 
-  // Fetch live position
+  // Fetch live position + balance
   useEffect(() => {
     if (!address || !postId) return;
     fetch(`${API}/claims/${postId}/user-stake?user=${address}`)
@@ -47,6 +48,11 @@ export default function StakeControl({
           setLiveSup(d.user_support || 0);
           setLiveChal(d.user_challenge || 0);
         }
+      }).catch(() => {});
+    fetch(`${API}/token/balance?address=${address}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.balance != null) setBalance(Number(BigInt(d.balance)) / 1e18);
       }).catch(() => {});
   }, [postId, address]);
 
@@ -71,6 +77,10 @@ export default function StakeControl({
   const isChallenge = targetVal < 0;
   const sideLabel = isSupport ? "support" : isChallenge ? "challenge" : "none";
   const sideColor = isSupport ? C.green : isChallenge ? C.red : C.muted;
+  // Compute additional VSP needed to reach the target
+  const currentSide = targetVal > 0 ? liveSup : targetVal < 0 ? liveChal : 0;
+  const needed = Math.max(0, Math.abs(targetVal) - currentSide);
+  const canAfford = balance == null || needed <= balance + 0.001;
 
   const step = (delta: number) => {
     const newVal = (parseFloat(target) || 0) + delta;
@@ -202,7 +212,8 @@ export default function StakeControl({
       {changed && (
         <button
           onClick={doApply}
-          disabled={busy}
+          disabled={busy || !canAfford}
+          title={!canAfford ? `Insufficient VSP (have ${(balance ?? 0).toFixed(2)}, need ${needed.toFixed(2)})` : undefined}
           style={{
             padding: "2px 10px",
             fontSize,
