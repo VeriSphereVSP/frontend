@@ -35,10 +35,12 @@ export default function VSBar({ vs, width = 56, height = 20 }: { vs: number; wid
       />
       <div
         style={{
-          position: "absolute", inset: 0,
+          position: "absolute", top: 0, bottom: 0,
+          // When inside: constrain label to the filled region so it sits on color, not white
+          // When outside: span the whole bar and align to unfilled side
+          left: labelInside && isNeg ? `${100 - fillPct}%` : 0,
+          right: labelInside && isPos ? `${100 - fillPct}%` : 0,
           display: "flex", alignItems: "center",
-          // When inside: center. When outside: opposite side from the fill
-          // (positive fill is on left, so label goes right; negative fill on right, label goes left)
           justifyContent: labelInside ? "center" : (isPos ? "flex-end" : "flex-start"),
           paddingLeft: labelInside || isPos ? 0 : 3,
           paddingRight: labelInside || isNeg ? 0 : 3,

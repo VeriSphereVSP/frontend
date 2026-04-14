@@ -31,29 +31,34 @@ function CreateClaimPrompt({
   onClose?: () => void;
 }) {
   const { isConnected, address } = useAccount();
-  const [amount, setAmount] = useState(1);
+  const [stakeAmt, setStakeAmt] = useState("1");
   const { createClaim, loading, needsApproval, approveVSP, error } = useCreateClaim();
   const { stake: stakeOnClaim } = useStake();
+  const amount = parseFloat(stakeAmt) || 0;
 
   const tooLong = text.length > MAX_CLAIM_LENGTH;
 
   const handleCreate = useCallback(async () => {
-    if (!isConnected || tooLong || amount <= 0) return;
+    if (!isConnected || tooLong || amount === 0) return;
     try {
       fireTxProgress({ title: "Creating claim", stage: "signing" });
       if (needsApproval) {
         await approveVSP();
       }
       const result = await createClaim(text);
+      console.log("[CreateClaim] result:", result, "amount:", amount);
       if (result?.post_id != null) {
-        // If user entered a stake, submit it
-        if (amount > 0) {
+        // Stake the (signed) amount on the appropriate side
+        if (amount !== 0) {
           fireTxProgress({ title: "Creating claim", stage: "staking" });
+          const side = amount > 0 ? "support" : "challenge";
+          console.log("[CreateClaim] calling stake:", { postId: result.post_id, side, amount: Math.abs(amount) });
           try {
-            await stakeOnClaim(result.post_id, 0, amount);
+            const stakeResult = await stakeOnClaim(result.post_id, side, Math.abs(amount));
+            console.log("[CreateClaim] stake result:", stakeResult);
           } catch (stakeErr: any) {
-            // Claim was created but staking failed — still notify parent
-            console.warn("Stake after createClaim failed:", stakeErr);
+            console.error("[CreateClaim] Stake after createClaim FAILED:", stakeErr);
+            fireToast("Stake failed: " + (stakeErr?.message || "unknown"));
           }
         }
         fireTxProgress({ title: "Creating claim", stage: "confirmed" });
@@ -66,7 +71,7 @@ function CreateClaimPrompt({
       fireTxProgress({ title: "Creating claim", stage: "error" });
       fireToast(friendlyError(e));
     }
-  }, [isConnected, tooLong, amount, needsApproval, approveVSP, createClaim, text, address, onCreated, stakeOnClaim]);
+  }, [isConnected, tooLong, stakeAmt, needsApproval, approveVSP, createClaim, text, address, onCreated, stakeOnClaim]);
 
   return (
     <div
@@ -83,11 +88,17 @@ function CreateClaimPrompt({
         <span style={{ fontSize: 11, color: S.textMuted }}>
           Make this a claim on-chain?
         </span>
-        <StakeInput value={amount} onChange={setAmount} />
-        <span style={{ fontSize: 10, color: S.textFaint }}>VSP (support)</span>
+        <StakeInput
+          value={stakeAmt}
+          onChange={setStakeAmt}
+          onSubmit={handleCreate}
+        />
+        <span style={{ fontSize: 10, color: amount > 0 ? S.green : amount < 0 ? S.red : S.textFaint }}>
+          VSP ({amount > 0 ? "support" : amount < 0 ? "challenge" : "no stake"})
+        </span>
         <button
           onClick={handleCreate}
-          disabled={!isConnected || tooLong || amount <= 0 || loading}
+          disabled={!isConnected || tooLong || amount === 0 || loading}
           style={{
             padding: "4px 10px",
             fontSize: 11,
@@ -96,10 +107,18 @@ function CreateClaimPrompt({
             background: S.blue,
             color: "#fff",
             cursor: isConnected && !tooLong ? "pointer" : "not-allowed",
-            opacity: isConnected && !tooLong && amount > 0 && !loading ? 1 : 0.5,
+            opacity: isConnected && !tooLong && amount !== 0 && !loading ? 1 : 0.5,
           }}
         >
-          {loading ? "Creating…" : needsApproval ? "Approve & Create" : "Create claim"}
+          {loading
+            ? "Creating…"
+            : needsApproval
+            ? "Approve & Create"
+            : amount > 0
+            ? "Create & Support"
+            : amount < 0
+            ? "Create & Challenge"
+            : "Create claim"}
         </button>
         {onClose && (
           <span
