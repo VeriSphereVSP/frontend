@@ -55,6 +55,8 @@ type PortfolioData = {
     losing_count: number;
     weighted_apr: number;
     neutral_count: number;
+    winning_stake?: number;
+    losing_stake?: number;
   };
   positions: Position[];
 };
@@ -95,19 +97,25 @@ export default function Portfolio({ onBack }: PortfolioProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
       // Fudge user_total to match live staking-section value (projected on-chain)
-      await Promise.all(d.positions.map(async (p: Position) => {
-        try {
-          const r = await fetch(`${API}/claims/${p.post_id}/user-stake?user=${subjectAddress}`);
-          if (r.ok) {
-            const live = await r.json();
-            const liveSup = Number(live.user_support) || 0;
-            const liveChal = Number(live.user_challenge) || 0;
-            p.user_support = liveSup;
-            p.user_challenge = liveChal;
-            p.user_total = liveSup + liveChal;
+      try {
+        const post_ids = d.positions.map((p: Position) => p.post_id);
+        const r = await fetch(`${API}/user-stakes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user: subjectAddress, post_ids }),
+        });
+        if (r.ok) {
+          const { stakes } = await r.json();
+          for (const p of d.positions) {
+            const s = stakes[String(p.post_id)];
+            if (s) {
+              p.user_support = Number(s.user_support) || 0;
+              p.user_challenge = Number(s.user_challenge) || 0;
+              p.user_total = p.user_support + p.user_challenge;
+            }
           }
-        } catch { /* keep indexed values */ }
-      }));
+        }
+      } catch { /* keep indexed values */ }
       setData(d);
     } catch (e: any) {
       setError(e.message || "Failed to load portfolio");
@@ -191,7 +199,8 @@ export default function Portfolio({ onBack }: PortfolioProps) {
 
   const summary = data?.summary;
   const winPct = summary && summary.total_staked > 0
-    ? (summary.total_support / summary.total_staked) * 100 : 0;
+    ? ((summary.winning_stake ?? summary.total_support) / summary.total_staked) * 100
+    : 0;
 
   const COLS: { key: SortKey; label: string; align: "left" | "right"; padRight?: number; padLeft?: number }[] = [
     { key: "post_id", label: "#", align: "right", padRight: 8 },

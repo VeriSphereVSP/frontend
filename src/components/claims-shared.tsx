@@ -182,9 +182,14 @@ export function Badge({ type }: { type: "claim" | "link" }) {
 }
 
 // ── Expanded Claim Detail ───────────────────────────
-export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
+export function ExpandedClaimDetail({
+  claim: c, onRefresh, onClose, onGoTo,
+  hideStaking,
+}: {
+
   claim: Claim; onRefresh: () => void; onClose: () => void;
-  onGoTo: (postId: number) => void;
+  onGoTo?: (postId: number) => void;
+  hideStaking?: boolean;
 }) {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -346,7 +351,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                   setLinkSearch("");
                   setPick(null);
                   // Navigate to the existing link's row
-                  onGoTo(existing.link_post_id);
+                  onGoTo?.(existing.link_post_id);
                   return;
                 }
                 setPick(picked);
@@ -373,7 +378,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                       setLinkSearch("");
                       setPick(null);
                       setLinkResults([]);
-                      onGoTo(existing.link_post_id);
+                      onGoTo?.(existing.link_post_id);
                       return;
                     }
                     setPick(r);
@@ -465,7 +470,7 @@ export function ExpandedClaimDetail({ claim: c, onRefresh, onClose, onGoTo }: {
                 padding: "6px 0", alignItems: "center",
                 cursor: "pointer", borderRadius: 4,
               }}
-              onClick={() => onGoTo(e.link_post_id)}
+              onClick={() => onGoTo?.(e.link_post_id)}
               onMouseEnter={(ev) => { ev.currentTarget.style.background = S.bgHover; }}
               onMouseLeave={(ev) => { ev.currentTarget.style.background = "transparent"; }}
             >
