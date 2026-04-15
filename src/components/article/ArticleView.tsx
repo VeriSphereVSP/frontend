@@ -25,6 +25,7 @@ export default function ArticleView({
   const { createClaim, loading: txing } = useCreateClaim();
   const { stake, loading: staking } = useStake();
   const [selId, setSelId] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [editPhase, setEditPhase] = useState<
@@ -364,12 +365,18 @@ export default function ArticleView({
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
             onClick={async () => {
+              if (refreshing) return;
+              setRefreshing(true);
               try {
                 await fetch(`${API}/article/${encodeURIComponent(article.topic_key || article.title)}/refresh`, { method: "POST" });
+                onRefresh();
               } catch {}
-              onRefresh();
+              finally {
+                setRefreshing(false);
+              }
             }}
-            title="Refresh"
+            disabled={refreshing}
+            title={refreshing ? "Refreshing..." : "Refresh"}
             style={{
               background: "none",
               border: "1px solid #e5e7eb",

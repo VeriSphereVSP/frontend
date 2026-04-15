@@ -43,6 +43,7 @@ export type Edge = {
   link_support: number;
   link_challenge: number;
   link_vs: number;
+  edge_contribution?: number;
 };
 
 export type QueueEntry = {
@@ -453,12 +454,10 @@ export function ExpandedClaimDetail({
         const isC = e.is_challenge;
         const linkTotal = (e.link_support ?? 0) + (e.link_challenge ?? 0);
         const linkVS = e.link_vs ?? 0;
-        // Approximate link effect
-        const claimVS = Math.abs(e.claim_vs ?? 0) / 100;
-        const linkVSFrac = Math.abs(linkVS) / 100;
-        const weight = linkTotal > 0 ? Math.min(linkTotal / (c.stake_support + c.stake_challenge + 0.01), 1) : 0;
-        const effect = linkVSFrac * claimVS * weight * (c.stake_support + c.stake_challenge);
-        const effectStr = (isC ? "−" : "+") + effect.toFixed(1);
+        // Real edge contribution from the contract (signed VSP-equivalent).
+        // Negative = pulls target VS down, positive = up. Sign already included.
+        const effect = e.edge_contribution ?? 0;
+        const effectStr = (effect >= 0 ? "+" : "") + effect.toFixed(2);
         const isStaking = stakingLinkId === e.link_post_id;
 
         return (

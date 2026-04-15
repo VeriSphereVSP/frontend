@@ -243,6 +243,7 @@ export default function InlineClaimCard({
         onRefresh={onRefresh}
         onClose={onClose}
         hideStaking={linksOnly}
+        onGoTo={(postId) => window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { view: "claims", postId } }))}
       />
     </div>
   );
