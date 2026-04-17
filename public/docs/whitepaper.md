@@ -1,5 +1,5 @@
 # VeriSphere: A Truth-Staking Protocol
-### White Paper — v14.2
+### White Paper — v14.3
 **Date:** April 2026
 **Contact:** info@verisphere.co
 
@@ -87,6 +87,8 @@ rBase = rMin + (rMax − rMin) × verity × participation
 Where `verity = |2A − T| × RAY / T` and both `rMin` and `rMax` have already been scaled from annual to per-epoch by the elapsed time (`× EPOCH_LENGTH × epochsElapsed / YEAR_LENGTH`).
 
 A budget is then computed for each side of the post: `budget = sideTotal × rBase / RAY`. The budget is distributed across lots in proportion to `(lot.amount × positionWeight)`. For a lot on the side aligned with the VS sign, value accrues (VSP is minted to the StakeEngine and added to the lot). For a lot on the opposing side, value is burned (VSP is destroyed and subtracted from the lot, never below zero).
+
+**Position rescale.** After each snapshot's epoch math completes, the StakeEngine rescales all lots' `weightedPosition` values so that the maximum position is strictly less than `sideTotal`. This prevents the edge case where earlier stakers withdraw and shrink `sideTotal` below later stakers' positions, which would otherwise clamp those lots' `positionWeight` to zero indefinitely. The rescale preserves the relative ordering of all lots.
 
 The global reference `sMax` decays at 0.5% per epoch (one day) when the leading post's total stake falls below the previous `sMax`, capped at 3,650 epochs of compounded decay per refresh. This ensures that historical peaks do not permanently suppress rates on future posts.
 

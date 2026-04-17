@@ -93,7 +93,7 @@ A **claim** is a factual assertion, like "Earth is a spheroid" or "The greenhous
 
 ### Staking
 
-Every claim has two sides: **support** and **challenge**.
+Every claim has two sides: **support** and **challenge**. You can only stake on **one side** of any given claim — if you want to switch sides, you must withdraw your current stake first and then stake on the other side.
 
 - **Positive stake** (+1, +5, etc.) = stake in **support** (you believe the claim is true)
 - **Negative stake** (-1, -5, etc.) = stake in **challenge** (you believe the claim is false)
@@ -151,8 +151,8 @@ If someone challenges a claim you support, you can:
 Your earning rate depends on four factors:
 
 1. **Truth Pressure** — How strong the VS is. A VS of 100% means maximum earning pressure. VS of 0% means no earnings.
-2. **Post Size** — Larger total stakes face stronger pressure. Your claim's total stake relative to the system-wide maximum.
-3. **Queue Position** — Earlier stakers earn more. The queue is divided into tranches; the earliest stakers earn up to 10× more than the latest.
+2. **Post Size** — Larger total stakes face stronger pressure. Your claim's total stake relative to the system-wide reference (`sMax`).
+3. **Queue Position** — Earlier stakers earn more. Your position weight is based on where you entered the queue: `positionWeight = 1 − (yourPosition / sideTotal)`. The very first staker gets the full rate; later entries earn progressively less.
 4. **Rate Bounds** — Earning rates scale from 0% (at VS = 0) up to a maximum of 100% APR.
 
 Winners (your side aligns with the VS direction) earn at this rate. Losers (opposing side) lose at this rate.
@@ -172,6 +172,9 @@ Only claims with VS > 0 can influence other claims through evidence links. A dis
 
 ### Conservation of Influence
 A claim's influence is distributed — not duplicated — across its outgoing links. Creating more links from the same claim dilutes each link's share.
+
+### Single-Sided Positions
+You can only stake on one side of any given claim. To flip from support to challenge (or vice versa), withdraw your current stake first, then stake on the other side.
 
 ---
 
@@ -197,6 +200,7 @@ A claim's influence is distributed — not duplicated — across its outgoing li
 - **Links are cheaper plays.** Staking on a link lets you influence a claim's VS without competing in a large direct stake pool.
 - **Watch the Portfolio.** Your Portfolio page shows real-time APR, position status, and the factors behind your earnings.
 - **VS = 0 is not safe.** A claim with VS = 0 isn't earning anything, and one well-funded challenge can push it negative quickly.
+- **One side only.** You can't hedge by staking both sides of the same claim. Pick a side and commit.
 
 ---
 
@@ -213,3 +217,6 @@ Verisphere handles gas fees for you through meta-transactions. If a transaction 
 
 ### I can't find my position
 Check the **Portfolio** tab. All your active stakes appear there with their current VS, APR, and status.
+
+### "Cannot stake on opposite side"
+You already have a stake on the other side of this claim. Withdraw it first (set your target to 0), then stake on the new side.
