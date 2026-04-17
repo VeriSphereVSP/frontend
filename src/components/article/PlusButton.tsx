@@ -8,7 +8,7 @@ import { friendlyError, fireToast } from "../../utils/errorMessages";
 import { fireTxProgress } from "./TxProgress";
 import StakeInput from "./StakeInput";
 
-const MAX_CLAIM_LENGTH = 500; // Must match PostRegistry.MAX_CLAIM_LENGTH
+const MAX_CLAIM_LENGTH = 500;
 
 const API = import.meta.env.VITE_API_BASE || "/api";
 
@@ -69,7 +69,6 @@ export default function PlusBtn({
     setPhase("cleanup");
     setError(null);
 
-    // Moderation gate — hard block before anything else
     try {
       const mod = await fetch(`${API}/moderate`, {
         method: "POST",
@@ -81,9 +80,7 @@ export default function PlusBtn({
         setPhase("input");
         return;
       }
-    } catch {
-      // If moderation check fails, proceed cautiously (relay will catch it)
-    }
+    } catch {}
 
     try {
       const d = await fetch(`${API}/article/sentence/cleanup`, {
@@ -95,7 +92,6 @@ export default function PlusBtn({
         d.suggested &&
         d.suggested.toLowerCase() !== d.original.toLowerCase()
       ) {
-        // Check if the "suggested" text is actually an LLM refusal
         const refusalPatterns = ["can't help", "cannot help", "won't process", "violates", "not appropriate", "I'm unable"];
         const isRefusal = refusalPatterns.some((p) => d.suggested.toLowerCase().includes(p));
         if (isRefusal) {
@@ -107,13 +103,11 @@ export default function PlusBtn({
         setConfirmChoice("suggested");
         setPhase("confirm");
       } else {
-        // No changes suggested — still show confirm so user can set stake
         setSug({ original: txt.trim(), suggested: txt.trim() });
         setConfirmChoice("suggested");
         setPhase("confirm");
       }
     } catch {
-      // Cleanup failed — still show confirm with original text
       setSug({ original: txt.trim(), suggested: txt.trim() });
       setConfirmChoice("suggested");
       setPhase("confirm");
@@ -138,17 +132,13 @@ export default function PlusBtn({
     fireTxProgress({ action: "start", title: "Creating Claim", steps });
     fireTxProgress({ action: "step", stepIndex: 0 });
 
-    let postId: number | null = null;
+    // createClaim returns null when blocked (duplicate, near-dup, error).
+    // It returns a ClaimState object only on successful creation.
+    // Do NOT check React state (isDuplicate, hookError) here — those
+    // are async state updates that won't be visible until next render.
+    let result;
     try {
-      const result = await createClaim(final);
-      console.log("createClaim result:", result);
-      postId = result?.post_id ?? null;
-        if (postId == null) {
-        const check = await fetch(
-          `${API}/claims/check-onchain?text=${encodeURIComponent(final)}`,
-        ).then((r) => r.json());
-        if (check?.exists && check.post_id != null) postId = check.post_id;
-      }
+      result = await createClaim(final);
     } catch (e: any) {
       setError(friendlyError(e));
       fireToast(friendlyError(e), "error");
@@ -157,11 +147,16 @@ export default function PlusBtn({
       return;
     }
 
-      if (postId == null) {
-      setError("Claim creation failed — check VSP balance and try again. Post ID: " + String(postId));
+    // null return = blocked by duplicate check, balance check, or relay error.
+    // The hook already dispatched a toast with the specific reason.
+    if (result == null) {
+      setError("Claim was not created. A duplicate or similar claim may already exist.");
+      fireTxProgress({ action: "error", error: "Claim creation blocked — duplicate or similar claim exists" });
       setPhase("input");
       return;
     }
+
+    const postId = result.post_id;
 
     // Stake on the new claim
     const amt = parseFloat(stakeAmt);
@@ -176,7 +171,7 @@ export default function PlusBtn({
       }
     }
 
-    // Insert into article DB (skip if no section context)
+    // Insert into article DB
     if (sectionId) try {
       const ins = await fetch(`${API}/article/sentence/insert`, {
         method: "POST",
@@ -205,7 +200,7 @@ export default function PlusBtn({
       console.warn("Article insert failed (claim is on-chain):", e);
     }
 
-    // Auto-detect topic for standalone claims (no article context)
+    // Auto-detect topic for standalone claims
     if (!sectionId && postId != null) {
       try {
         await fetch(`${API}/claims/detect-topic`, {
@@ -293,164 +288,78 @@ export default function PlusBtn({
             Insufficient VSP balance. You need at least 2 VSP (1 fee + 1 stake).
           </span>
           <div style={{ marginTop: 4 }}>
-            <B
-              onClick={() => {
-                setOpen(false);
-                setTxt("");
-              }}
-              ghost
-            >
-              Close
-            </B>
+            <B onClick={() => { setOpen(false); setTxt(""); }} ghost>Close</B>
           </div>
         </div>
       ) : phase === "confirm" && sug ? (
         <div>
-          {/* Version selection */}
           {sug.original.toLowerCase() !== sug.suggested.toLowerCase() ? (
             <>
-              <div
-                onClick={() => setConfirmChoice("suggested")}
-                style={{
-                  fontSize: 12,
-                  marginBottom: 4,
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  background: confirmChoice === "suggested" ? "rgba(37,99,235,0.06)" : "transparent",
-                  border: confirmChoice === "suggested" ? `1px solid ${C.blue}` : "1px solid transparent",
-                }}
-              >
+              <div onClick={() => setConfirmChoice("suggested")} style={{
+                fontSize: 12, marginBottom: 4, padding: "4px 6px", borderRadius: 4, cursor: "pointer",
+                background: confirmChoice === "suggested" ? "rgba(37,99,235,0.06)" : "transparent",
+                border: confirmChoice === "suggested" ? `1px solid ${C.blue}` : "1px solid transparent",
+              }}>
                 <span style={{ fontWeight: confirmChoice === "suggested" ? 700 : 400, color: confirmChoice === "suggested" ? C.text : C.muted }}>
                   {confirmChoice === "suggested" ? "✓ Selected: " : ""}Suggested:
                 </span>{" "}
-                <span style={{ color: confirmChoice === "suggested" ? C.text : C.muted }}>
-                  {sug.suggested}
-                </span>
+                <span style={{ color: confirmChoice === "suggested" ? C.text : C.muted }}>{sug.suggested}</span>
               </div>
-              <div
-                onClick={() => setConfirmChoice("original")}
-                style={{
-                  fontSize: 12,
-                  marginBottom: 5,
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  background: confirmChoice === "original" ? "rgba(37,99,235,0.06)" : "transparent",
-                  border: confirmChoice === "original" ? `1px solid ${C.blue}` : "1px solid transparent",
-                }}
-              >
+              <div onClick={() => setConfirmChoice("original")} style={{
+                fontSize: 12, marginBottom: 5, padding: "4px 6px", borderRadius: 4, cursor: "pointer",
+                background: confirmChoice === "original" ? "rgba(37,99,235,0.06)" : "transparent",
+                border: confirmChoice === "original" ? `1px solid ${C.blue}` : "1px solid transparent",
+              }}>
                 <span style={{ fontWeight: confirmChoice === "original" ? 700 : 400, color: confirmChoice === "original" ? C.text : C.muted }}>
                   {confirmChoice === "original" ? "✓ Selected: " : ""}Your version:
                 </span>{" "}
-                <span style={{ color: confirmChoice === "original" ? C.text : C.muted }}>
-                  {sug.original}
-                </span>
+                <span style={{ color: confirmChoice === "original" ? C.text : C.muted }}>{sug.original}</span>
               </div>
             </>
           ) : (
-            <div style={{ fontSize: 12, marginBottom: 5 }}>
-              <b>Create claim:</b> {sug.suggested}
-            </div>
+            <div style={{ fontSize: 12, marginBottom: 5 }}><b>Create claim:</b> {sug.suggested}</div>
           )}
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              alignItems: "center",
-              marginBottom: 4,
-            }}
-          >
+          <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 4 }}>
             <span style={{ fontSize: 11, color: C.gray }}>Initial stake:</span>
-            <StakeInput
-              value={stakeAmt}
-              onChange={setStakeAmt}
-              onSubmit={() => commit(confirmChoice === "original" ? sug.original : sug.suggested)}
-            />
+            <StakeInput value={stakeAmt} onChange={setStakeAmt}
+              onSubmit={() => commit(confirmChoice === "original" ? sug.original : sug.suggested)} />
             <span style={{ fontSize: 10, color: C.muted }}>VSP support</span>
           </div>
           <div style={{ display: "flex", gap: 5 }}>
             <B onClick={() => commit(confirmChoice === "original" ? sug.original : sug.suggested)} dis={busy}>
               {statusText || "Create & stake"}
             </B>
-            <B
-              onClick={() => {
-                setSug(null);
-                setPhase("input");
-              }}
-              ghost
-            >
-              Cancel
-            </B>
+            <B onClick={() => { setSug(null); setPhase("input"); }} ghost>Cancel</B>
           </div>
         </div>
       ) : (
         <div>
-          <textarea
-            ref={r}
-            value={txt}
-            onChange={(e) => setTxt(e.target.value)}
-            placeholder="Write a factual claim to add on-chain…"
-            maxLength={500}
+          <textarea ref={r} value={txt} onChange={(e) => setTxt(e.target.value)}
+            placeholder="Write a factual claim to add on-chain…" maxLength={500}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                cleanup();
-              }
-              if (e.key === "Escape") {
-                setOpen(false);
-                setTxt("");
-              }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); cleanup(); }
+              if (e.key === "Escape") { setOpen(false); setTxt(""); }
             }}
             rows={4}
             style={{
-              width: "100%",
-              minWidth: 600,
-              padding: "6px 8px",
-              fontSize: 14,
-              lineHeight: 1.5,
-              border: `1px solid ${C.gb}`,
-              borderRadius: 4,
-              resize: "vertical",
-              fontFamily: "inherit",
-              boxSizing: "border-box",
+              width: "100%", minWidth: 600, padding: "6px 8px", fontSize: 14, lineHeight: 1.5,
+              border: `1px solid ${C.gb}`, borderRadius: 4, resize: "vertical",
+              fontFamily: "inherit", boxSizing: "border-box",
             }}
           />
-          <div
-            style={{
-              display: "flex",
-              gap: 5,
-              marginTop: 4,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <B onClick={cleanup} dis={busy || !txt.trim()}>
-              {statusText || "Create & stake"}
-            </B>
+          <div style={{ display: "flex", gap: 5, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
+            <B onClick={cleanup} dis={busy || !txt.trim()}>{statusText || "Create & stake"}</B>
             <span style={{ fontSize: 10, color: C.muted }}>1 VSP fee +</span>
-            <StakeInput
-              value={stakeAmt}
-              onChange={setStakeAmt}
-              onSubmit={cleanup}
-            />
+            <StakeInput value={stakeAmt} onChange={setStakeAmt} onSubmit={cleanup} />
             <span style={{ fontSize: 10, color: C.muted }}>VSP stake</span>
-            <span style={{ fontSize: 9, color: new TextEncoder().encode(txt).length > MAX_CLAIM_LENGTH - 50 ? "#ef4444" : C.muted }}>{new TextEncoder().encode(txt).length}/{MAX_CLAIM_LENGTH} bytes</span>
-            <B
-              onClick={() => {
-                setOpen(false);
-                setTxt("");
-              }}
-              ghost
-            >
-              Cancel
-            </B>
+            <span style={{ fontSize: 9, color: new TextEncoder().encode(txt).length > MAX_CLAIM_LENGTH - 50 ? "#ef4444" : C.muted }}>
+              {new TextEncoder().encode(txt).length}/{MAX_CLAIM_LENGTH} bytes
+            </span>
+            <B onClick={() => { setOpen(false); setTxt(""); }} ghost>Cancel</B>
           </div>
         </div>
       )}
-      {error && (
-        <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{error}</div>
-      )}
+      {error && <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>{error}</div>}
     </div>
   );
 }

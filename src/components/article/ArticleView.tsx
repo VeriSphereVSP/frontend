@@ -22,7 +22,7 @@ export default function ArticleView({
 }) {
   useEffect(injectCSS, []);
   const { isConnected, address } = useAccount();
-  const { createClaim, loading: txing } = useCreateClaim();
+  const { createClaim, isDuplicate, error: hookError, loading: txing } = useCreateClaim();
   const { stake, loading: staking } = useStake();
   const [selId, setSelId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,18 +137,11 @@ export default function ArticleView({
     setEditPhase("creating");
 
     // 1. Create claim on-chain
-    let postId: number | null = null;
+    // createClaim returns null when blocked (duplicate, near-dup, error).
+    // Do NOT check React state here — it won't be updated until next render.
+    let result;
     try {
-      const result = await createClaim(final);
-      postId = result?.post_id ?? null;
-      if (postId == null || postId < 0) {
-        try {
-          const check = await fetch(
-            `${API}/claims/check-onchain?text=${encodeURIComponent(final)}`,
-          ).then((r) => r.json());
-          if (check?.exists && check.post_id != null) postId = check.post_id;
-        } catch {}
-      }
+      result = await createClaim(final);
     } catch (e: any) {
       console.error("createClaim error:", e);
       fireTxProgress({ action: "error", error: "Claim creation failed: " + (e.message || e) });
@@ -156,6 +149,15 @@ export default function ArticleView({
       return;
     }
 
+    // null = blocked by duplicate check, balance check, or relay error.
+    // The hook already dispatched a toast with the specific reason.
+    if (result == null) {
+      fireTxProgress({ action: "error", error: "Claim was not created — duplicate or similar claim may exist" });
+      setEditPhase("edit");
+      return;
+    }
+
+    const postId = result.post_id;
     if (postId == null || postId < 0) {
       fireTxProgress({ action: "error", error: "Claim creation failed — no post ID returned" });
       setEditPhase("edit");
