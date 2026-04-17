@@ -1,6 +1,6 @@
 # VeriSphere: A Truth-Staking Protocol
-### White Paper — v14.1
-**Date:** March 2026
+### White Paper — v14.2
+**Date:** April 2026
 **Contact:** info@verisphere.co
 
 ---
@@ -53,7 +53,7 @@ Example: if claim S ("Earth is a spheroid") challenges claim F ("Earth is flat")
 
 Links are also posts and carry their own post ID, staking pool, and Verity Score. Duplicate links (same from, to, and challenge flag) are rejected. Self-loops are rejected.
 
-The link graph permits cycles. Two claims may challenge each other simultaneously. The Verity Score computation handles cycles through a stack-based visited-node mechanism (Section 4.3).
+The link graph permits cycles structurally. Two claims may challenge each other simultaneously. Cycles are not prevented at write time by the `LinkGraph` contract; instead, cycle handling occurs at score computation time in the `ScoreEngine` (see Section 4.3).
 
 Creating a link also requires the posting fee, which is burned.
 
@@ -63,43 +63,32 @@ Creating a link also requires the posting fee, which is burned.
 
 ### 3.1 Positional Staking
 
-Any participant may stake VSP tokens on any post (claim or link) on either side:
+Any participant may stake VSP tokens on any post (claim or link), but only on **one side** of any given post. A user with an existing support stake on a post cannot add a challenge stake to the same post (the contract reverts with `OppositeSideStaked`); they must withdraw fully and re-enter on the other side.
 
-- **Support**: assert the claim is true or the evidence link is credible.
-- **Challenge**: assert the claim is false or the evidence link is not credible.
+Each (post, side) pair holds at most **one consolidated lot per user**. A user's first stake on a side creates the lot at the back of the queue. Subsequent stakes by the same user on the same side merge into the existing lot, and the lot's effective queue position is recomputed as the stake-weighted average of the old position and the new entry position. This means later additions drag a user's weighted position toward the back of the queue, diluting the position-weight advantage of their original entry.
 
-Stakes are recorded in a FIFO queue per side per post. Earlier stakes occupy higher-risk, higher-reward positions. Later stakes occupy lower-risk, lower-reward positions.
-
-Stakes may be withdrawn at any time. Withdrawal from the front of the queue (LIFO) shifts remaining stakes forward into riskier positions.
+Stakes may be withdrawn at any time, in any amount up to the user's current lot balance. Withdrawals shrink the lot in place; they do not change the lot's weighted position. A `lifo` parameter exists on the `withdraw` function for ABI compatibility but is ignored.
 
 ### 3.2 Staking Rate
 
-Each stake accrues or loses value continuously according to an annualized rate determined by:
+Each lot accrues or loses value once per snapshot period (default: one day) according to a rate determined by:
 
-1. **Truth pressure** — the verity magnitude (`|2A - T| / T`) determines the base strength of the economic force. When VS is exactly neutral (equal support and challenge), no economic effect occurs.
-2. **Post size** — the post's total stake relative to a global reference (`sMax`) scales the rate. Larger posts face greater pressure.
-3. **Queue position (tranche)** — each lot is assigned to a positional tranche based on its stake-weighted queue position. Earlier tranches earn higher rate multipliers; later tranches earn lower ones. The number of tranches is governance-configurable (default: 10).
-4. **Governed bounds** — rates are bounded between a minimum and maximum annual rate, both governance-configurable. The current deployment uses 0% minimum and 100% maximum.
+1. **Truth pressure** — the verity magnitude (`|2A − T| / T`) determines the base strength of the economic force. When VS is exactly neutral (equal support and challenge), no economic effect occurs.
+2. **Post size (participation)** — the post's total stake relative to a global reference (`sMax`) scales the rate. Larger posts face greater pressure. The factor is `participation = T / sMax`.
+3. **Position weight** — each lot's weight is a continuous function of its stake-weighted position in its side queue: `positionWeight = 1 − (lot.weightedPosition / sideTotal)`. Lots with low weighted position (those near the front of the queue) earn near the full rate; lots near the back earn close to zero.
+4. **Governed bounds** — the annual rate is bounded between `rMin` and `rMax`, both governance-configurable. The current deployment uses 0% minimum and 100% maximum.
 
-For a stake on the side aligned with the VS sign, value accrues (tokens are minted). For a stake on the opposing side, value is burned. The rate formula is:
-
-```
-rBase = rMin + ((rMax - rMin) × v × participation) / RAY²
-```
-
-Where `v = |2A - T| × RAY / T` (verity magnitude), `participation = T × RAY / sMax` (post size factor), and `rMin`, `rMax` are time-scaled from their annual values.
-
-Each lot's effective rate is further scaled by its positional tranche weight:
+The base per-epoch rate (in RAY units, where RAY = 1e18) is:
 
 ```
-positionWeight = (numTranches - tranche) / numTranches
-rLot = rBase × positionWeight
-delta = lot.amount × rLot / RAY
+rBase = rMin + (rMax − rMin) × verity × participation
 ```
 
-If aligned with VS: `lot.amount += delta`. If opposed: `lot.amount -= min(delta, lot.amount)`.
+Where `verity = |2A − T| × RAY / T` and both `rMin` and `rMax` have already been scaled from annual to per-epoch by the elapsed time (`× EPOCH_LENGTH × epochsElapsed / YEAR_LENGTH`).
 
-The global reference `sMax` decays at 0.1% per epoch (day), ensuring that historical peaks do not permanently suppress rates on future posts.
+A budget is then computed for each side of the post: `budget = sideTotal × rBase / RAY`. The budget is distributed across lots in proportion to `(lot.amount × positionWeight)`. For a lot on the side aligned with the VS sign, value accrues (VSP is minted to the StakeEngine and added to the lot). For a lot on the opposing side, value is burned (VSP is destroyed and subtracted from the lot, never below zero).
+
+The global reference `sMax` decays at 0.5% per epoch (one day) when the leading post's total stake falls below the previous `sMax`, capped at 3,650 epochs of compounded decay per refresh. This ensures that historical peaks do not permanently suppress rates on future posts.
 
 For the full normative specification, see `claim-spec-evm-abi.md`, Appendix A.
 
@@ -120,9 +109,9 @@ If A = D:   baseVS = 0
 If T = 0:   baseVS = 0
 ```
 
-Where `RAY = 10^18` (fixed-point scaling). The VS is clamped to `[-RAY, +RAY]`, corresponding to the range [-100%, +100%].
+Where `RAY = 10^18` (fixed-point scaling). The VS is clamped to `[−RAY, +RAY]`, corresponding to the range [−100%, +100%].
 
-A post is considered **active** when its total stake meets or exceeds the posting fee. Inactive posts have no effect on other posts' effective VS.
+A post is considered **active** when its total stake meets or exceeds the activity threshold (governance-configurable, defaults to the posting fee). Inactive posts have no effect on other posts' effective VS.
 
 ### 4.2 Effective Verity Score
 
@@ -184,6 +173,8 @@ if isChallenge: contribution = -contribution
 
 A positive contribution adds to the child's support side. A negative contribution adds to the child's challenge side.
 
+**Bounded fan-in.** For gas safety, the ScoreEngine processes at most `maxIncomingEdges` incoming links per claim and sums at most `maxOutgoingLinks` outgoing links per parent during the share computation. Both limits default to 64 and are governance-configurable. Edges beyond these limits are silently skipped in insertion order, so claims with very high fan-in may have a slightly truncated effective VS. Off-chain indexers that recompute scores should apply the same caps to match on-chain behavior.
+
 #### 4.2.3 Effective VS Computation
 
 After accumulating all incoming link contributions:
@@ -196,7 +187,7 @@ pool = totalSupport + totalChallenge
 effectiveVS = (totalSupport - totalChallenge) / pool × RAY
 ```
 
-The result is clamped to `[-RAY, +RAY]`.
+The result is clamped to `[−RAY, +RAY]`.
 
 #### 4.2.4 Example
 
@@ -215,16 +206,15 @@ The claim with 1 VSP support is pushed negative by the 2 VSP challenger. To defe
 
 ### 4.3 Cycle Handling
 
-The link graph permits cycles. The effective VS computation uses a stack-based cycle detection mechanism:
+The link graph permits cycles structurally; the `LinkGraph` contract does not enforce acyclicity at write time. Acyclicity of the *score computation* is instead enforced at read time by the `ScoreEngine`:
 
-1. When computing `effectiveVS(C)`, maintain a stack of post IDs currently being computed.
-2. Before recursing into a parent, check if it is already on the stack.
-3. If so, use the parent's **base VS** (not effective VS) as `parentVS`. This breaks the recursion without truncating legitimate deep chains.
-4. A hard depth limit of 32 provides additional safety. Beyond this depth, contributions are truncated to zero.
+1. When computing `effectiveVS(C)`, the engine maintains a stack of post IDs currently being computed (passed by reference through recursive calls).
+2. Before recursing into a parent claim, the engine scans the stack. If the parent's post ID is already present, the recursion would close a cycle; the engine returns `0` for that parent's contribution rather than recursing.
+3. A hard depth limit of 32 provides additional safety. Beyond this depth, contributions are truncated to zero regardless of cycle membership.
 
-When a cycle is detected, only the cycled post's contribution is zeroed. Other incoming edges of the same parent still compute normally. For example, if computing VS(F) encounters chain F→A→S→F, then F's contribution to S is 0, but A's other incoming edges (if any) are unaffected.
+When a cycle is detected, only the cycled post's contribution is zeroed for that path. Other incoming edges of the same parent still compute normally. For example, if computing VS(F) encounters chain F→A→S→F, then F's contribution back to S along that path is 0, but A's other incoming edges (if any) are unaffected.
 
-Combined with the credibility gate (Section 4.2.1), cycles are further stabilized: if a claim's effective VS drops to zero or below during computation, it ceases to influence its neighbors, preventing oscillatory feedback.
+Combined with the credibility gate (Section 4.2.1), cycles are further stabilized: if a claim's effective VS drops to zero or below during computation, it ceases to influence its neighbors, preventing oscillatory feedback. The result is that the effective VS function is well-defined and bounded on any directed graph the protocol can produce, not merely on a DAG.
 
 ### 4.4 Conservation of Influence
 
@@ -249,7 +239,7 @@ The posting fee is 1 VSP, burned upon post creation. The fee amount is governanc
 
 The posting fee serves two purposes:
 - Spam prevention: imposes a cost on publishing claims.
-- Activity threshold: a post must accumulate total stake ≥ the posting fee to become active and influence other posts.
+- Activity threshold: a post must accumulate total stake ≥ the activity threshold (which defaults to the posting fee) to become active and influence other posts.
 
 ### 5.3 Economic Properties
 
@@ -267,9 +257,9 @@ All contracts are deployed as UUPS upgradeable proxies behind a governance-contr
 |----------|---------|
 | VSPToken | ERC-20 token with ERC-2612 permit, Authority-controlled mint and burn |
 | PostRegistry | Creates claims and links, burns posting fees, stores post metadata |
-| LinkGraph | Stores directed evidence edges, enforces self-loop and duplicate prevention |
-| StakeEngine | Manages per-post staking queues, computes positional rates, handles withdrawals |
-| ScoreEngine | Computes base and effective Verity Scores with stake-weighted propagation |
+| LinkGraph | Stores directed evidence edges, enforces self-loop and duplicate prevention (cycles permitted) |
+| StakeEngine | Manages per-post consolidated lots, computes positional rates, handles withdrawals |
+| ScoreEngine | Computes base and effective Verity Scores with stake-weighted propagation, cycle-safe |
 | ProtocolViews | Read-only aggregation of claim summaries, edge data, and scores |
 | PostingFeePolicy | Governance-configurable posting fee |
 | StakeRatePolicy | Governance-configurable staking rate bounds |
@@ -292,6 +282,7 @@ Governance can modify:
 - Posting fee amount
 - Staking rate bounds (min and max APR)
 - Activity threshold
+- Snapshot period and ScoreEngine fan-in limits
 - Contract implementations (via UUPS proxy upgrades)
 - Authority roles
 

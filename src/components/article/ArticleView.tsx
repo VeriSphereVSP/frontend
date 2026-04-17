@@ -376,18 +376,22 @@ export default function ArticleView({
               }
             }}
             disabled={refreshing}
-            title={refreshing ? "Refreshing..." : "Refresh"}
+            title={refreshing ? "Refreshing... this may take 30-60 seconds" : "Refresh: regenerate article"}
             style={{
-              background: "none",
+              background: refreshing ? "#f3f4f6" : "none",
               border: "1px solid #e5e7eb",
               borderRadius: 6,
               padding: "5px 12px",
-              cursor: "pointer",
+              cursor: refreshing ? "wait" : "pointer",
               fontSize: 12,
-              color: "#6b7280",
+              color: refreshing ? "#9ca3af" : "#6b7280",
+              opacity: refreshing ? 0.7 : 1,
+              transition: "all 0.2s",
             }}
           >
-            ↻ Refresh
+            {refreshing ? (
+              <><span style={{ display: "inline-block", animation: "vs-spin 1s linear infinite" }}>↻</span>{" Refreshing…"}</>
+            ) : "↻ Refresh"}
           </button>
           {isConnected && article.sections.length > 0 && (
             <PlusButton

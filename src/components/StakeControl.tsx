@@ -15,6 +15,22 @@ const C = {
   text: "#1f2937",
 };
 
+/** Fetch the user's live on-chain stake for a post.
+ *  Returns { user_support, user_challenge } in human units (VSP, not wei). */
+async function fetchLiveStake(postId: number, address: string): Promise<{ user_support: number; user_challenge: number }> {
+  try {
+    const res = await fetch(`${API}/claims/${postId}/user-stake?user=${address}`);
+    if (!res.ok) return { user_support: 0, user_challenge: 0 };
+    const d = await res.json();
+    return {
+      user_support: Number(d.user_support) || 0,
+      user_challenge: Number(d.user_challenge) || 0,
+    };
+  } catch {
+    return { user_support: 0, user_challenge: 0 };
+  }
+}
+
 export default function StakeControl({
   postId,
   currentSupport,
@@ -41,14 +57,10 @@ export default function StakeControl({
   // Fetch live position + balance
   useEffect(() => {
     if (!address || !postId) return;
-    fetch(`${API}/claims/${postId}/user-stake?user=${address}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (d) {
-          setLiveSup(d.user_support || 0);
-          setLiveChal(d.user_challenge || 0);
-        }
-      }).catch(() => {});
+    fetchLiveStake(postId, address).then((d) => {
+      setLiveSup(d.user_support);
+      setLiveChal(d.user_challenge);
+    });
     fetch(`${API}/token/balance?address=${address}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
@@ -88,7 +100,7 @@ export default function StakeControl({
   };
 
   const doApply = async () => {
-    if (postId == null || busy) return;
+    if (postId == null || busy || !address) return;
     const absTarget = Math.abs(targetVal);
     setBusy(true);
     setErr(null);
@@ -101,7 +113,7 @@ export default function StakeControl({
 
     try {
       // Check VSP balance before submitting
-      if (targetVal !== 0 && address) {
+      if (targetVal !== 0) {
         try {
           const balRes = await fetch(`${API}/token/balance?address=${address}`);
           if (balRes.ok) {
@@ -117,46 +129,54 @@ export default function StakeControl({
           }
         } catch {}
       }
+
+      // Always re-fetch the live on-chain position right before any
+      // withdraw.  Cached liveSup / liveChal can be stale due to
+      // epoch accrual, and withdrawing a stale (too-small) amount
+      // leaves a residual that triggers OppositeSideStaked on the
+      // subsequent stake call.
+      const fresh = await fetchLiveStake(postId, address);
+      const freshSup = fresh.user_support;
+      const freshChal = fresh.user_challenge;
+
       if (targetVal === 0) {
         // Liquidate everything
-        if (liveSup > 0.001) await withdraw(postId, "support", liveSup);
-        if (liveChal > 0.001) await withdraw(postId, "challenge", liveChal);
+        if (freshSup > 0.0001) await withdraw(postId, "support", freshSup);
+        if (freshChal > 0.0001) await withdraw(postId, "challenge", freshChal);
       } else if (targetVal > 0) {
         // Target is support
-        // First withdraw any challenge
-        if (liveChal > 0.001) await withdraw(postId, "challenge", liveChal);
+        // First withdraw ALL challenge (use fresh on-chain amount)
+        if (freshChal > 0.0001) await withdraw(postId, "challenge", freshChal);
         // Then adjust support
-        if (absTarget > liveSup + 0.001) {
-          await stake(postId, "support", absTarget - liveSup);
-        } else if (absTarget < liveSup - 0.001) {
-          await withdraw(postId, "support", liveSup - absTarget);
+        if (absTarget > freshSup + 0.001) {
+          await stake(postId, "support", absTarget - freshSup);
+        } else if (absTarget < freshSup - 0.001) {
+          await withdraw(postId, "support", freshSup - absTarget);
         }
       } else {
         // Target is challenge
-        // First withdraw any support
-        if (liveSup > 0.001) await withdraw(postId, "support", liveSup);
+        // First withdraw ALL support (use fresh on-chain amount)
+        if (freshSup > 0.0001) await withdraw(postId, "support", freshSup);
         // Then adjust challenge
-        if (absTarget > liveChal + 0.001) {
-          await stake(postId, "challenge", absTarget - liveChal);
-        } else if (absTarget < liveChal - 0.001) {
-          await withdraw(postId, "challenge", liveChal - absTarget);
+        if (absTarget > freshChal + 0.001) {
+          await stake(postId, "challenge", absTarget - freshChal);
+        } else if (absTarget < freshChal - 0.001) {
+          await withdraw(postId, "challenge", freshChal - absTarget);
         }
       }
       fireTxProgress({ action: "done" });
       // Refresh position after delay
       setTimeout(() => {
-        if (address && postId) {
-          fetch(`${API}/claims/${postId}/user-stake?user=${address}`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((d) => {
-              if (d) { setLiveSup(d.user_support || 0); setLiveChal(d.user_challenge || 0); }
-            }).catch(() => {});
-        }
+        fetchLiveStake(postId, address).then((d) => {
+          setLiveSup(d.user_support);
+          setLiveChal(d.user_challenge);
+        });
       }, 2000);
       onDone();
     } catch (e: any) {
-      setErr(e.message?.slice(0, 60) || "Stake failed");
-      fireTxProgress({ action: "error", error: e.message || "Failed" });
+      const msg = e.message || "Stake failed";
+      setErr(msg.slice(0, 80));
+      fireTxProgress({ action: "error", error: msg });
     } finally {
       setBusy(false);
     }
@@ -230,7 +250,7 @@ export default function StakeControl({
         </button>
       )}
 
-      {err && <span style={{ fontSize: 9, color: C.red }}>{err}</span>}
+      {err && <span style={{ fontSize: 9, color: C.red, maxWidth: 200, wordBreak: "break-word" as const }}>{err}</span>}
     </div>
   );
 }

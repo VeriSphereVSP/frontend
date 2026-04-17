@@ -290,7 +290,7 @@ export function ExpandedClaimDetail({
           label="Your stake on this claim:"
         />
         <span
-          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: linksMode === "incoming" ? "underline" : "none" }}
+          style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: "auto", textDecoration: linksMode === "incoming" ? "underline" : "none" }}
           onClick={() => setLinksMode(linksMode === "incoming" ? "none" : "incoming")}
         >Incoming Links</span>
         <span
@@ -301,6 +301,11 @@ export function ExpandedClaimDetail({
           style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showQueue ? "underline" : "none" }}
           onClick={() => setShowQueue(!showQueue)}
         >{showQueue ? "Hide queues" : "Queues"}</span>
+        <span
+          onClick={onClose}
+          title="Close"
+          style={{ cursor: "pointer", fontSize: 14, color: S.textFaint, marginLeft: 12, padding: "0 4px" }}
+        >✕</span>
       </div>
 
       {/* Queue view */}

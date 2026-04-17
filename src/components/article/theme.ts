@@ -42,6 +42,7 @@ export function injectCSS() {
     .av-plus{opacity:0;transition:opacity .12s;cursor:pointer;vertical-align:middle}
     .av-zone:hover .av-plus{opacity:1!important}
     .av-plus:hover{opacity:1!important}
+    @keyframes vs-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
   `;
   document.head.appendChild(s);
 }
