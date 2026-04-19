@@ -40,18 +40,23 @@ function CreateClaimPrompt({
 
   const handleCreate = useCallback(async () => {
     if (!isConnected || tooLong || amount === 0) return;
+    const side = amount > 0 ? "support" : "challenge";
+    const steps = [
+      { label: "Create claim on-chain", status: "pending" as const },
+      { label: `Stake ${Math.abs(amount)} VSP ${side}`, status: "pending" as const },
+      { label: "Insert into article", status: "pending" as const },
+    ];
+    fireTxProgress({ action: "start", title: "Creating Claim", steps });
     try {
-      fireTxProgress({ title: "Creating claim", stage: "signing" });
+      fireTxProgress({ action: "step", stepIndex: 0 });
       if (needsApproval) {
         await approveVSP();
       }
       const result = await createClaim(text);
       console.log("[CreateClaim] result:", result, "amount:", amount);
       if (result?.post_id != null) {
-        // Stake the (signed) amount on the appropriate side
         if (amount !== 0) {
-          fireTxProgress({ title: "Creating claim", stage: "staking" });
-          const side = amount > 0 ? "support" : "challenge";
+          fireTxProgress({ action: "step", stepIndex: 1 });
           console.log("[CreateClaim] calling stake:", { postId: result.post_id, side, amount: Math.abs(amount) });
           try {
             const stakeResult = await stakeOnClaim(result.post_id, side, Math.abs(amount));
@@ -61,14 +66,16 @@ function CreateClaimPrompt({
             fireToast("Stake failed: " + (stakeErr?.message || "unknown"));
           }
         }
-        fireTxProgress({ title: "Creating claim", stage: "confirmed" });
+        fireTxProgress({ action: "step", stepIndex: 2 });
         if (address) await triggerReindex(result.post_id, address);
+        fireTxProgress({ action: "done" });
+        window.dispatchEvent(new Event("verisphere:data-changed"));
         onCreated(result.post_id);
       } else {
-        fireTxProgress({ title: "Creating claim", stage: "confirmed" });
+        fireTxProgress({ action: "error", error: "Claim was not created" });
       }
     } catch (e: any) {
-      fireTxProgress({ title: "Creating claim", stage: "error" });
+      fireTxProgress({ action: "error", error: friendlyError(e) });
       fireToast(friendlyError(e));
     }
   }, [isConnected, tooLong, stakeAmt, needsApproval, approveVSP, createClaim, text, address, onCreated, stakeOnClaim]);

@@ -48,6 +48,9 @@ function TopicPills({ onSelect, currentTopic }: { onSelect: (t: string) => void;
         alignItems: "center",
         maxHeight: 64,
         overflow: "hidden",
+        position: "relative" as const,
+        zIndex: 20,
+        flexShrink: 0,
       }}
     >
       <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0 }}>Topics:</span>
