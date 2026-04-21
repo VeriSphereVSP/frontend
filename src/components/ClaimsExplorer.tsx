@@ -30,6 +30,7 @@ export default function ClaimsExplorer() {
   const [topicFilter, setTopicFilter] = useState("");
   const [showLinks, setShowLinks] = useState(true);
   const [showEmpty, setShowEmpty] = useState(false);
+  const [showDupes, setShowDupes] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const fetchClaims = useCallback(async () => {
@@ -56,6 +57,12 @@ export default function ClaimsExplorer() {
         if (c.topic && (!existing.topic || c.topic.length < existing.topic.length)) seen.set(c.post_id, c);
       }
     }
+
+    if (showDupes) {
+      // Show all individual claims (no rollup)
+      return Array.from(seen.values());
+    }
+
     // Roll up dupe groups: show only canonical with aggregate metrics
     const groupSeen = new Map<number, Claim>();
     const result: Claim[] = [];
@@ -64,7 +71,6 @@ export default function ClaimsExplorer() {
       if (gid && c.dupe_member_count && c.dupe_member_count > 1) {
         if (!groupSeen.has(gid)) {
           const rolled = { ...c };
-          // Use canonical data
           if (c.dupe_canonical_post_id && c.post_id !== c.dupe_canonical_post_id) {
             const canonical = seen.get(c.dupe_canonical_post_id);
             if (canonical) { rolled.text = canonical.text; rolled.post_id = canonical.post_id; }
@@ -81,7 +87,7 @@ export default function ClaimsExplorer() {
       }
     }
     return result;
-  }, [claims]);
+  }, [claims, showDupes]);
 
   const topics = useMemo(() => {
     const set = new Set(dedupClaims.map(c => c.topic).filter(Boolean));
@@ -125,12 +131,21 @@ export default function ClaimsExplorer() {
   }, [dedupClaims.length]);
 
   const handleGoTo = (postId: number) => {
-    // Find the target post — if it's filtered out, enable the appropriate toggle
-    const target = dedupClaims.find(c => c.post_id === postId);
-    if (target) {
+    let target = dedupClaims.find(c => c.post_id === postId);
+
+    if (!target) {
+      // Target is hidden (rolled-up dupe or filtered) — enable showDupes to reveal it
+      const raw = claims.find(c => c.post_id === postId);
+      if (raw && raw.dupe_group_id && raw.dupe_member_count && raw.dupe_member_count > 1) {
+        if (!showDupes) setShowDupes(true);
+      }
+      if (raw && raw.is_link && !showLinks) setShowLinks(true);
+      if (raw && raw.total_stake === 0 && !showEmpty) setShowEmpty(true);
+    } else {
       if (target.is_link && !showLinks) setShowLinks(true);
       if (target.total_stake === 0 && !showEmpty) setShowEmpty(true);
     }
+
     setExpandedId(postId);
     setTimeout(() => {
       const el = document.getElementById(`claim-row-${postId}`);
@@ -209,6 +224,10 @@ export default function ClaimsExplorer() {
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: S.textMuted, cursor: "pointer" }}>
           <input type="checkbox" checked={showEmpty} onChange={e => setShowEmpty(e.target.checked)} />
           Show empty
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: S.textMuted, cursor: "pointer" }}>
+          <input type="checkbox" checked={showDupes} onChange={e => setShowDupes(e.target.checked)} />
+          Show duplicates
         </label>
         <span style={{ fontSize: 12, color: S.textFaint }}>
           {sorted.length} {sorted.length === 1 ? "entry" : "entries"}{filter || topicFilter || !showLinks ? " (filtered)" : ""}

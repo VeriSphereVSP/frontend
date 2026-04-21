@@ -45,7 +45,26 @@ function FloorBadge({ floor }: { floor: number }) {
         &#9432;
       </span>
       {showTip && (
-        <div className="floor-tooltip">
+        <div style={{
+          position: "absolute",
+          top: "calc(100% + 8px)",
+          right: 0,
+          transform: "translateX(20px)",
+          zIndex: 9999,
+          width: 260,
+          padding: "10px 12px",
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: "#1f2937",
+          background: "#ffffff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 8,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+          wordWrap: "break-word" as const,
+          overflowWrap: "break-word" as const,
+          whiteSpace: "normal" as const,
+          pointerEvents: "auto" as const,
+        }}>
           The liquidation floor is the minimum guaranteed sell price for VSP,
           equal to total USDC reserves divided by circulating supply. It updates
           in real time as trades occur.

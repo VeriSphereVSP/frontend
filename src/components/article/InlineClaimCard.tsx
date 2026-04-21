@@ -161,6 +161,8 @@ export default function InlineClaimCard({
   onClose,
   linksOnly,
   postType,
+  dupeGroupId,
+  dupeCount,
 }: {
   postId: number | null;
   text: string;
@@ -173,6 +175,8 @@ export default function InlineClaimCard({
   onRefresh: () => void;
   onClose?: () => void;
   linksOnly?: boolean;
+  dupeGroupId?: number;
+  dupeCount?: number;
 }) {
   const { address } = useAccount();
   const [resolvedPid, setResolvedPid] = useState<number | null>(postId);
@@ -246,6 +250,8 @@ export default function InlineClaimCard({
           created_at: null,
           created_epoch: undefined,
           is_link: postType === "link",
+          dupe_group_id: dupeGroupId,
+          dupe_member_count: dupeCount,
         }}
         onRefresh={onRefresh}
         onClose={onClose}

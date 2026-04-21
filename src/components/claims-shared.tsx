@@ -201,6 +201,8 @@ export function ExpandedClaimDetail({
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(true);
   const [showQueue, setShowQueue] = useState(false);
+  const [showDupes, setShowDupes] = useState(false);
+  const [dupeMembers, setDupeMembers] = useState<any[]>([]);
   const [linksMode, setLinksMode] = useState<"none" | "incoming" | "outgoing">("none");
   const [outgoingEdges, setOutgoingEdges] = useState<Edge[]>([]);
   const [stakingLinkId, setStakingLinkId] = useState<number | null>(null);
@@ -228,6 +230,21 @@ export function ExpandedClaimDetail({
   }, [c.post_id]);
 
   useEffect(() => { refreshEdges(); }, [refreshEdges]);
+
+  // Fetch dupe group members when Duplicates tab is opened
+  useEffect(() => {
+    if (!showDupes || !c.post_id) return;
+    fetch(`${API}/claims/${c.post_id}/dupe-group`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.members && data.members.length > 1) {
+          setDupeMembers(data.members.filter((m: any) => m.post_id !== c.post_id));
+        } else {
+          setDupeMembers([]);
+        }
+      })
+      .catch(() => setDupeMembers([]));
+  }, [showDupes, c.post_id]);
 
   useEffect(() => {
     const q = linkSearch.trim();
@@ -307,6 +324,17 @@ export function ExpandedClaimDetail({
           style={{ fontSize: 10, color: S.textFaint, cursor: "pointer", marginLeft: 4, textDecoration: showQueue ? "underline" : "none" }}
           onClick={() => setShowQueue(!showQueue)}
         >{showQueue ? "Hide queues" : "Queues"}</span>
+        {c.dupe_member_count && c.dupe_member_count > 1 && (
+          <span
+            style={{
+              fontSize: 10, cursor: "pointer", marginLeft: 4,
+              color: showDupes ? "#92400e" : S.textFaint,
+              textDecoration: showDupes ? "underline" : "none",
+              fontWeight: showDupes ? 600 : 400,
+            }}
+            onClick={() => setShowDupes(!showDupes)}
+          >Duplicates ({(c.dupe_member_count || 0) - 1})</span>
+        )}
         <span
           onClick={onClose}
           title="Close"
@@ -316,6 +344,66 @@ export function ExpandedClaimDetail({
 
       {/* Queue view */}
       {showQueue && <QueueView postId={c.post_id} connectedAddress={address} />}
+
+      {/* Duplicates view */}
+      {showDupes && (
+        <div style={{ margin: "6px 0", padding: "8px 10px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, fontSize: 12 }}>
+          <div style={{ fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
+            Similar claims ({dupeMembers.length} other{dupeMembers.length !== 1 ? 's' : ''})
+          </div>
+          {dupeMembers.length === 0 ? (
+            <div style={{ color: S.textMuted, fontSize: 11 }}>No other members in this group.</div>
+          ) : (
+            dupeMembers.map((m: any) => {
+              const mClaim: Claim = {
+                post_id: m.post_id,
+                text: m.text || "",
+                verity_score: m.verity_score || 0,
+                base_vs: m.verity_score || 0,
+                stake_support: m.support || 0,
+                stake_challenge: m.challenge || 0,
+                total_stake: (m.support || 0) + (m.challenge || 0),
+                controversy: 0,
+                incoming_links: 0,
+                outgoing_links: 0,
+                topic: c.topic || "",
+                created_at: null,
+                created_epoch: undefined,
+              };
+              return (
+                <div key={m.post_id} style={{ marginBottom: 4 }}>
+                  <div style={{
+                    padding: "6px 8px", background: "#fff",
+                    border: "1px solid #e5e7eb", borderRadius: 4,
+                    fontSize: 12, color: "#374151",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 500 }}>{m.text}</span>
+                      {m.is_canonical && <span style={{ fontSize: 9, color: "#92400e", fontWeight: 600 }}>★ canonical</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: S.textMuted, display: "flex", gap: 8, alignItems: "center" }}>
+                      <span>#{m.post_id}</span>
+                      <span style={{ color: S.green }}>Sup: {(m.support || 0).toFixed(2)}</span>
+                      <span style={{ color: S.red }}>Chal: {(m.challenge || 0).toFixed(2)}</span>
+                      <span>VS: {(m.verity_score || 0).toFixed(1)}%</span>
+                      <span
+                        style={{ color: S.blue, cursor: "pointer", marginLeft: "auto" }}
+                        onClick={() => {
+                          if (onGoTo) {
+                            onGoTo(m.post_id);
+                          } else {
+                            window.dispatchEvent(new CustomEvent("verisphere:navigate", { detail: { view: "claims", postId: m.post_id } }));
+                          }
+                        }}
+                      >Open in Claims →</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {/* Link search / create — only for claims, not links */}
       {isConnected && !c.is_link && (

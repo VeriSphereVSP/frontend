@@ -542,6 +542,8 @@ export default function ArticleView({
                           allSentences={allSent}
                           onRefresh={onRefresh}
                           onClose={collapse}
+                          dupeGroupId={(s as any).dupe_group_id}
+                          dupeCount={(s as any).dupe_count}
                         />
                       )}
                       {/* Confirm panel after cleanup */}
