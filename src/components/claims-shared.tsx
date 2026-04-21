@@ -25,6 +25,12 @@ export type Claim = {
   created_at: string | null;
   created_epoch?: number;
   is_link?: boolean;
+  dupe_group_id?: number;
+  dupe_canonical_post_id?: number;
+  dupe_member_count?: number;
+  dupe_total_support?: number;
+  dupe_total_challenge?: number;
+  dupe_aggregate_vs?: number;
   from_post_id?: number;
   to_post_id?: number;
   is_challenge?: boolean;

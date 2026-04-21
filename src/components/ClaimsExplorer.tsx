@@ -47,6 +47,7 @@ export default function ClaimsExplorer() {
   useEffect(() => { fetchClaims(); }, [fetchClaims]);
 
   const dedupClaims = useMemo(() => {
+    // Dedup by post_id
     const seen = new Map<number, Claim>();
     for (const c of claims) {
       if (!seen.has(c.post_id)) { seen.set(c.post_id, c); }
@@ -55,7 +56,31 @@ export default function ClaimsExplorer() {
         if (c.topic && (!existing.topic || c.topic.length < existing.topic.length)) seen.set(c.post_id, c);
       }
     }
-    return Array.from(seen.values());
+    // Roll up dupe groups: show only canonical with aggregate metrics
+    const groupSeen = new Map<number, Claim>();
+    const result: Claim[] = [];
+    for (const c of seen.values()) {
+      const gid = c.dupe_group_id;
+      if (gid && c.dupe_member_count && c.dupe_member_count > 1) {
+        if (!groupSeen.has(gid)) {
+          const rolled = { ...c };
+          // Use canonical data
+          if (c.dupe_canonical_post_id && c.post_id !== c.dupe_canonical_post_id) {
+            const canonical = seen.get(c.dupe_canonical_post_id);
+            if (canonical) { rolled.text = canonical.text; rolled.post_id = canonical.post_id; }
+          }
+          if (c.dupe_total_support != null) rolled.stake_support = c.dupe_total_support;
+          if (c.dupe_total_challenge != null) rolled.stake_challenge = c.dupe_total_challenge;
+          if (c.dupe_aggregate_vs != null) rolled.verity_score = c.dupe_aggregate_vs;
+          rolled.total_stake = (rolled.stake_support || 0) + (rolled.stake_challenge || 0);
+          groupSeen.set(gid, rolled);
+          result.push(rolled);
+        }
+      } else {
+        result.push(c);
+      }
+    }
+    return result;
   }, [claims]);
 
   const topics = useMemo(() => {
@@ -66,7 +91,7 @@ export default function ClaimsExplorer() {
   const filtered = useMemo(() => {
     let list = dedupClaims;
     if (!showLinks) list = list.filter(c => !c.is_link);
-    if (!showEmpty) list = list.filter(c => c.total_stake > 0);
+    if (!showEmpty) list = list.filter(c => c.total_stake > 0 || c.is_link);
     if (filter.trim()) {
       const q = filter.toLowerCase();
       list = list.filter(c => c.text.toLowerCase().includes(q) || String(c.post_id).includes(q));
@@ -114,7 +139,7 @@ export default function ClaimsExplorer() {
   };
 
   const totalStake = dedupClaims.reduce((s, c) => s + c.total_stake, 0);
-  const totalLinks = dedupClaims.reduce((s, c) => s + c.incoming_links + c.outgoing_links, 0) / 2; // Each link counted twice
+  const totalLinks = dedupClaims.filter(c => c.is_link).length;
   const avgVS = dedupClaims.length > 0 ? dedupClaims.reduce((s, c) => s + c.verity_score, 0) / dedupClaims.length : 0;
   const mostControversial = dedupClaims.length > 0 ? dedupClaims.reduce((a, b) => (a.controversy > b.controversy ? a : b)) : null;
 
@@ -268,6 +293,15 @@ export default function ClaimsExplorer() {
                         </AddressTooltip>
                       )}
                       {c.is_link && <Badge type="link" />}
+                      {!c.is_link && c.dupe_member_count && c.dupe_member_count > 1 && (
+                        <span style={{
+                          fontSize: 9, padding: "1px 5px", borderRadius: 8,
+                          background: "#fef3c7", color: "#92400e", fontWeight: 600,
+                          whiteSpace: "nowrap",
+                        }} title={`${c.dupe_member_count} similar claims grouped`}>
+                          {c.dupe_member_count}×
+                        </span>
+                      )}
                     </div>
                     {/* Claim/Link text */}
                     <div style={{

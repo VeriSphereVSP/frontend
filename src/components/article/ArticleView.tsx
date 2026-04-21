@@ -62,11 +62,18 @@ export default function ArticleView({
       if (editId === s.sentence_id) {
         /* already editing */
       } else if (isConnected) {
-        setEditId(s.sentence_id);
-        setEditText(s.text);
-        setEditPhase("edit");
-        setEditSug(null);
-        setStakeAmt("1");
+        // PD-04: Block editing on-chain claims
+        if (s.post_id) {
+          window.dispatchEvent(new CustomEvent("verisphere:toast", {
+            detail: { message: "On-chain claims cannot be edited. Stake on it or create a counter-claim.", type: "info" }
+          }));
+        } else {
+          setEditId(s.sentence_id);
+          setEditText(s.text);
+          setEditPhase("edit");
+          setEditSug(null);
+          setStakeAmt("1");
+        }
       } else {
         setSelId(null);
       }
@@ -293,6 +300,22 @@ export default function ArticleView({
     }
     const cleanNarrative = narrative.filter((_, i) => !toRemove.has(i));
 
+    // Rollup: group on-chain claims by dupe_group, show only master
+    {
+      const groupSeen = new Set();
+      const keep = [];
+      for (const s of cleanNarrative) {
+        const gid = (s as any).dupe_group_id;
+        const count = (s as any).dupe_count || 1;
+        if (!gid || count <= 1) { keep.push(s); continue; }
+        if (groupSeen.has(gid)) continue;
+        groupSeen.add(gid);
+        keep.push(s);
+      }
+      cleanNarrative.length = 0;
+      cleanNarrative.push(...keep);
+    }
+
     const narPids = new Set(
       cleanNarrative.filter((s) => s.post_id != null).map((s) => s.post_id!),
     );
@@ -491,8 +514,17 @@ export default function ArticleView({
                         >
                           {s.text}
                           {onC && (
-                            <span style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 3 }}>
+                            <span style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 3, gap: 3 }}>
                               <VSBar vs={vs} width={40} height={12} />
+                              {(s as any).dupe_count > 1 && (
+                                <span style={{
+                                  fontSize: 9, padding: "0 4px", borderRadius: 6,
+                                  background: "#fef3c7", color: "#92400e", fontWeight: 700,
+                                  lineHeight: "14px", cursor: "pointer",
+                                }} title={`${(s as any).dupe_count} similar claims grouped — click to see all`}>
+                                  {(s as any).dupe_count}×
+                                </span>
+                              )}
                             </span>
                           )}
                         </span>

@@ -476,9 +476,12 @@ body {
 .floor-tooltip {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  right: auto;
+  left: auto;
+  transform: translateX(-85%);
   z-index: 50;
   width: 240px;
+  max-width: min(240px, calc(100vw - 32px));
   padding: 8px 10px;
   font-size: 0.75rem;
   line-height: 1.45;
@@ -488,6 +491,8 @@ body {
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   pointer-events: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 /* Arrow on top of tooltip */
@@ -495,7 +500,8 @@ body {
   content: "";
   position: absolute;
   top: -5px;
-  right: 10px;
+  right: auto;
+  left: calc(85% - 4px);
   width: 8px;
   height: 8px;
   background: #ffffff;

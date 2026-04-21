@@ -48,31 +48,20 @@ export default function ContentPanel({ topic }: { topic: string }) {
     return stopPolling;
   }, [fetchArticle]);
 
-  // Listen for data-changed events: show banner + start polling
+  // Listen for data-changed events: brief banner then refetch.
+  // APP-11 makes cache rebuild synchronous in the relay, so the article
+  // is fresh within ~2s. We show a brief banner and refetch after 3s.
   useEffect(() => {
     const handler = () => {
       setRegenerating(true);
       stopPolling();
 
-      let attempts = 0;
-      pollRef.current = setInterval(async () => {
-        attempts++;
-        if (attempts > 60) { // 60 x 3s = 3 min max
-          stopPolling();
-          setRegenerating(false);
-          fetchArticle(); // fetch whatever is available
-          return;
-        }
-        try {
-          const vr = await fetch(`${API}/article/${encodeURIComponent(topic.trim())}/version`);
-          const vd = await vr.json();
-          if (vd.hash && vd.hash !== versionRef.current) {
-            stopPolling();
-            setRegenerating(false);
-            fetchArticle();
-          }
-        } catch {}
-      }, 3000);
+      // Refetch after a short delay (relay rebuilds cache synchronously)
+      pollRef.current = setTimeout(async () => {
+        await fetchArticle();
+        setRegenerating(false);
+        pollRef.current = null;
+      }, 3000) as any;
     };
 
     window.addEventListener("verisphere:data-changed", handler);
@@ -115,9 +104,7 @@ export default function ContentPanel({ topic }: { topic: string }) {
             }}
           />
           <span>
-            <strong>Updating article</strong> — your claim was created successfully.
-            The article is regenerating in the background and will refresh automatically.
-            Please don't recreate the claim or manually refresh.
+            <strong>Updating article</strong> — refreshing with latest data…
           </span>
         </div>
       )}
