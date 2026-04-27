@@ -96,8 +96,8 @@ export function formatAge(ts?: number): string {
   return `${Math.floor(days / 365)}y`;
 }
 
-export const GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
-export const LINK_GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
+export const GRID = "32px 48px 48px minmax(200px,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
+export const LINK_GRID = "32px 48px 48px minmax(200px,1fr) 72px 54px 54px 54px 38px 38px 60px 80px";
 
 // ── Copyable Address Tooltip ────────────────────────
 export function AddressTooltip({ address, children }: { address: string; children: React.ReactNode }) {

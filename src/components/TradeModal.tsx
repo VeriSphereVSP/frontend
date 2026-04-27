@@ -379,119 +379,33 @@ export default function TradeModal({
           </div>
         </div>
 
-        {/* Preview button */}
-        <button
-          className="btn"
-          onClick={handlePreview}
-          disabled={previewing || numeric <= 0}
-          style={{ width: "100%", marginBottom: 8 }}
-        >
-          {previewing ? "Calculating…" : "Preview Fill"}
-        </button>
-
-        {/* Preview result with fee breakdown */}
-        {preview && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: 10,
-              background: "#f8fafc",
-              borderRadius: 8,
-              fontSize: 13,
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>You {side === "buy" ? "receive" : "send"}:</span>
-              <strong>{preview.qty_vsp.toFixed(4)} VSP</strong>
-            </div>
-            {side === "buy" ? (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>Subtotal:</span>
-                  <span>{(preview.subtotal_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>Platform fee:</span>
-                  <span>{(preview.fee_usdc ?? 0).toFixed(2)} USDC ({(preview.fee_vsp ?? 0).toFixed(4)} VSP)</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, borderTop: "1px solid #e5e7eb", paddingTop: 4, marginTop: 4 }}>
-                  <span>Total cost:</span>
-                  <span>{(preview.total_usdc ?? 0).toFixed(2)} USDC</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>Gross proceeds:</span>
-                  <span>{(preview.gross_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>Platform fee:</span>
-                  <span>-{(preview.fee_usdc ?? 0).toFixed(2)} USDC ({(preview.fee_vsp ?? 0).toFixed(4)} VSP)</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, borderTop: "1px solid #e5e7eb", paddingTop: 4, marginTop: 4 }}>
-                  <span>You receive:</span>
-                  <span>{(preview.net_usdc ?? preview.total_usdc ?? 0).toFixed(2)} USDC</span>
-                </div>
-              </>
-            )}
-            <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
-              Avg price: ${(preview.avg_price ?? preview.avg_price_usd ?? 0).toFixed(4)}/VSP
-            </div>
-          </div>
-        )}
-
-        {/* Status */}
-        {status && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: 8,
-              background: "#eff6ff",
-              borderRadius: 6,
-              fontSize: 12,
-              color: "#2563eb",
-              textAlign: "center",
-            }}
-          >
-            {status}
-          </div>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div
-            style={{
-              marginBottom: 8,
-              padding: 8,
-              background: "#fef2f2",
-              borderRadius: 6,
-              fontSize: 12,
-              color: "#dc2626",
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={onClose} style={{ flex: 1 }}>
-            Cancel
-          </button>
+        {/* Single action button — transitions through states */}
+        {!preview ? (
           <button
             className="btn btn-primary"
-            onClick={handleConfirm}
-            disabled={loading || !preview || numeric <= 0}
-            style={{ flex: 1 }}
+            onClick={handlePreview}
+            disabled={previewing || numeric <= 0}
+            style={{ width: "100%", marginBottom: 8 }}
           >
-            {loading
-              ? "Processing…"
-              : preview
-                ? `${side === "buy" ? "Buy" : "Sell"} ${preview.qty_vsp.toFixed(4)} VSP`
-                : `${side === "buy" ? "Buy" : "Sell"} VSP`}
+            {previewing ? "Calculating…" : "Preview Fill"}
           </button>
-        </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" onClick={() => { setPreview(null); setError(null); }} style={{ flex: 1 }}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleConfirm}
+              disabled={loading}
+              style={{ flex: 1 }}
+            >
+              {loading
+                ? "Processing…"
+                : `${side === "buy" ? "Buy" : "Sell"} ${preview.qty_vsp.toFixed(4)} VSP`}
+            </button>
+          </div>
+        )}
 
         {/* Gasless note */}
         <div

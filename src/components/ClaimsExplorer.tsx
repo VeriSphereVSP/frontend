@@ -242,7 +242,7 @@ export default function ClaimsExplorer() {
       ) : sorted.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: S.textFaint }}>No claims found.</div>
       ) : (
-        <div style={{ border: `1px solid ${S.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" as const, flex: 1, minHeight: 0 }}>
+        <div style={{ border: `1px solid ${S.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" as const, flex: 1, minHeight: 0, overflowX: "auto" as const }}>
           {/* Header */}
           <div style={{
             display: "grid", gridTemplateColumns: GRID,
