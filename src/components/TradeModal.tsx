@@ -174,11 +174,15 @@ export default function TradeModal({
       // Calculate permit value with buffer
       let permitValue: bigint;
       if (side === "buy") {
-        // USDC: 6 decimals, add 5% buffer
-        permitValue = BigInt(Math.ceil(preview.total_usdc * 1.05 * 1_000_000));
+        // USDC: 6 decimals, add 5% buffer using integer math
+        const usdcCents = Math.ceil(preview.total_usdc * 1_000_000 * 1.05);
+        permitValue = BigInt(Math.round(usdcCents));
       } else {
-        // VSP: 18 decimals, add 5% buffer
-        permitValue = BigInt(Math.ceil(numeric * 1.05 * 1e18));
+        // VSP: 18 decimals, add 5% buffer using string conversion
+        // Avoid Number * 1e18 which loses precision for large amounts
+        const vspWhole = Math.floor(numeric * 1.05);
+        const vspFrac = Math.round((numeric * 1.05 - vspWhole) * 1e18);
+        permitValue = BigInt(vspWhole) * BigInt("1000000000000000000") + BigInt(vspFrac);
       }
 
       const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
@@ -241,7 +245,7 @@ export default function TradeModal({
             v,
             r,
             s,
-            value: Number(permitValue),
+            value: permitValue.toString(),
           },
         }),
       });
@@ -279,19 +283,27 @@ export default function TradeModal({
     }
   }
 
-  function handleMax() {
+  async function handleMax() {
     if (side === "buy") {
       if (denom === "usdc") {
         setAmount(usdcBalance.toFixed(2));
       } else {
-        const maxVsp = usdcBalance / spotPrice || 0;
-        setAmount(maxVsp.toFixed(4));
+        // Use backend to calculate max VSP for available USDC
+        try {
+          const res = await fetch(`/api/mm/preview-buy?usdc_amount=${(Math.floor(usdcBalance * 100) / 100).toFixed(2)}`);
+          if (res.ok) {
+            const data = await res.json();
+            setAmount(data.qty_vsp.toFixed(4));
+          } else {
+            setAmount((usdcBalance / spotPrice).toFixed(4));
+          }
+        } catch { setAmount((usdcBalance / spotPrice).toFixed(4)); }
       }
     } else {
       if (denom === "vsp") {
-        setAmount(vspBalance.toFixed(4));
+        setAmount((vspBalance * 0.9999).toFixed(4));
       } else {
-        setAmount((vspBalance * spotPrice).toFixed(2));
+        setAmount((vspBalance * 0.9999 * spotPrice).toFixed(2));
       }
     }
   }
@@ -378,6 +390,44 @@ export default function TradeModal({
               : `≈ ${(numeric / spotPrice).toFixed(4)} VSP at current price`}
           </div>
         </div>
+
+        {/* Error display */}
+        {error && (
+          <div style={{ padding: "8px 12px", marginBottom: 8, background: "#fef2f2",
+            border: "1px solid #fecaca", borderRadius: 6, fontSize: 12, color: "#dc2626" }}>
+            {error}
+          </div>
+        )}
+
+        {/* Preview breakdown */}
+        {preview && (
+          <div style={{ padding: "10px 12px", marginBottom: 8, background: "#f9fafb",
+            borderRadius: 6, fontSize: 12, lineHeight: 1.8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>You {side === "buy" ? "receive" : "send"}:</span>
+              <strong>{preview.qty_vsp.toFixed(4)} VSP</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>{side === "buy" ? "Subtotal:" : "Gross proceeds:"}</span>
+              <span>{(preview.gross_usdc ?? preview.subtotal_usdc ?? (preview.total_usdc - (preview.fee_usdc || 0))).toFixed(2)} USDC</span>
+            </div>
+            {preview.fee_usdc > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280" }}>
+                <span>Platform fee:</span>
+                <span>{preview.fee_usdc.toFixed(2)} USDC ({preview.fee_vsp?.toFixed(4) || "—"} VSP)</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600,
+              borderTop: "1px solid #e5e7eb", marginTop: 4, paddingTop: 4 }}>
+              <span>{side === "buy" ? "Total cost:" : "You receive:"}</span>
+              <span>{(side === "buy" ? preview.total_usdc : (preview.net_usdc ?? preview.total_usdc)).toFixed(2)} USDC</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280", fontSize: 11 }}>
+              <span>Avg price:</span>
+              <span>${preview.avg_price?.toFixed(4) ?? ((side === "buy" ? preview.total_usdc : preview.net_usdc ?? preview.total_usdc) / preview.qty_vsp).toFixed(4)}/VSP</span>
+            </div>
+          </div>
+        )}
 
         {/* Single action button — transitions through states */}
         {!preview ? (

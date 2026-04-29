@@ -252,6 +252,7 @@ export default function Portfolio({ onBack }: PortfolioProps) {
             <StatBox label="LOSING" value={String(summary.losing_count)} sub={`${summary.total_challenge.toFixed(2)} challenge`} color={S.red} />
             <StatBox label="OVERALL APR" value={`${summary.weighted_apr > 0 ? "+" : ""}${summary.weighted_apr.toFixed(1)}%`} sub="weighted average" color={summary.weighted_apr > 0 ? S.green : S.red} />
           </div>
+          {summary.total_staked > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ height: 6, background: S.borderLight, borderRadius: 3, overflow: "hidden", display: "flex" }}>
               <div style={{ width: `${winPct}%`, background: S.green }} />
@@ -262,6 +263,7 @@ export default function Portfolio({ onBack }: PortfolioProps) {
               <span>{(100 - winPct).toFixed(0)}% losing</span>
             </div>
           </div>
+          )}
         </>
       )}
 
