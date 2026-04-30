@@ -48,7 +48,7 @@ export default function StakeControl({
   label?: string;
   postTotal?: number;
 }) {
-  const { stake, withdraw } = useStake();
+  const { setStake, stake, withdraw } = useStake();
   const { address } = useAccount();
   const [liveSup, setLiveSup] = useState(currentSupport);
   const [liveChal, setLiveChal] = useState(currentChallenge);
@@ -112,6 +112,20 @@ export default function StakeControl({
     });
 
     try {
+      // Check VSP balance for relay fee (all operations cost 0.1 VSP)
+      {
+        const balRes = await fetch(`${API}/token/balance?address=${address}`);
+        if (balRes.ok) {
+          const balData = await balRes.json();
+          const balVSP = Number(BigInt(balData.balance || '0')) / 1e18;
+          if (balVSP < 0.1) {
+            setErr(`Insufficient VSP for relay fee (have ${balVSP.toFixed(4)}, need 0.1)`);
+            fireTxProgress({ action: 'error', error: 'Insufficient VSP for relay fee. Buy VSP first.' });
+            setBusy(false);
+            return;
+          }
+        }
+      }
       // Check VSP balance before submitting
       if (targetVal !== 0) {
         try {
@@ -120,7 +134,7 @@ export default function StakeControl({
             const balData = await balRes.json();
             const balVSP = Number(BigInt(balData.balance || "0")) / 1e18;
             const needed = Math.abs(targetVal) - (targetVal > 0 ? liveSup : liveChal);
-            if (needed > 0 && balVSP < needed - 0.001) {
+            if (balVSP < (needed > 0 ? needed + 0.1 : 0.1) - 0.001) {  // include relay fee  // +0.1 for relay fee
               setErr(`Insufficient VSP (have ${balVSP.toFixed(2)}, need ${needed.toFixed(2)})`);
               fireTxProgress({ action: "error", error: "Insufficient VSP balance" });
               setBusy(false);
@@ -130,40 +144,10 @@ export default function StakeControl({
         } catch {}
       }
 
-      // Always re-fetch the live on-chain position right before any
-      // withdraw.  Cached liveSup / liveChal can be stale due to
-      // epoch accrual, and withdrawing a stale (too-small) amount
-      // leaves a residual that triggers OppositeSideStaked on the
-      // subsequent stake call.
-      const fresh = await fetchLiveStake(postId, address);
-      const freshSup = fresh.user_support;
-      const freshChal = fresh.user_challenge;
-
-      if (targetVal === 0) {
-        // Liquidate everything
-        if (freshSup > 0.0001) await withdraw(postId, "support", freshSup);
-        if (freshChal > 0.0001) await withdraw(postId, "challenge", freshChal);
-      } else if (targetVal > 0) {
-        // Target is support
-        // First withdraw ALL challenge (use fresh on-chain amount)
-        if (freshChal > 0.0001) await withdraw(postId, "challenge", freshChal);
-        // Then adjust support
-        if (absTarget > freshSup + 0.001) {
-          await stake(postId, "support", absTarget - freshSup);
-        } else if (absTarget < freshSup - 0.001) {
-          await withdraw(postId, "support", freshSup - absTarget);
-        }
-      } else {
-        // Target is challenge
-        // First withdraw ALL support (use fresh on-chain amount)
-        if (freshSup > 0.0001) await withdraw(postId, "support", freshSup);
-        // Then adjust challenge
-        if (absTarget > freshChal + 0.001) {
-          await stake(postId, "challenge", absTarget - freshChal);
-        } else if (absTarget < freshChal - 0.001) {
-          await withdraw(postId, "challenge", freshChal - absTarget);
-        }
-      }
+      // Single contract call: setStake(postId, target)
+      // target > 0 = support, target < 0 = challenge, 0 = withdraw all
+      // The contract handles all withdraw + stake transitions atomically.
+      await setStake(postId, targetVal);
       fireTxProgress({ action: "done" });
       // Refresh position after delay
       setTimeout(() => {
@@ -250,7 +234,7 @@ export default function StakeControl({
         </button>
       )}
 
-      {err && <span style={{ fontSize: 9, color: C.red, maxWidth: 200, wordBreak: "break-word" as const }}>{err}</span>}
+      {err && <div style={{ fontSize: 11, color: "#dc2626", padding: "6px 8px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 4, marginTop: 4, maxWidth: 300, wordBreak: "break-word" as const }}>{err}</div>}
     </div>
   );
 }

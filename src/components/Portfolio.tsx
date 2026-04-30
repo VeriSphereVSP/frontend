@@ -11,7 +11,7 @@ import {
 const API = import.meta.env.VITE_API_BASE || "/api";
 
 // 12-column grid matching Claims view layout visually, with Portfolio-specific tail
-const GRID = "32px 48px 48px minmax(0,1fr) 72px 54px 54px 54px 54px 44px 54px 80px";
+const GRID = "32px 48px 48px minmax(200px,1fr) 72px 54px 54px 54px 54px 44px 54px 80px";
 
 type Position = {
   post_id: number;
