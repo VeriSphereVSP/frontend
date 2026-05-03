@@ -39,13 +39,20 @@ function CreateClaimPrompt({
   const tooLong = text.length > MAX_CLAIM_LENGTH;
 
   const handleCreate = useCallback(async () => {
-    if (!isConnected || tooLong || amount === 0) return;
-    const side = amount > 0 ? "support" : "challenge";
+    // Zero stake is a valid action (1 VSP fee, no stake) — same as the
+    // from-scratch flow in PlusButton.tsx. Only block on connection,
+    // length, and in-flight loading.
+    if (!isConnected || tooLong) return;
+    const side: "support" | "challenge" =
+      amount > 0 ? "support" : amount < 0 ? "challenge" : "support"; // unused when amount === 0
     const steps = [
       { label: "Create claim on-chain", status: "pending" as const },
-      { label: `Stake ${Math.abs(amount)} VSP ${side}`, status: "pending" as const },
+      ...(amount !== 0
+        ? [{ label: `Stake ${Math.abs(amount)} VSP ${side}`, status: "pending" as const }]
+        : []),
       { label: "Insert into article", status: "pending" as const },
     ];
+    const insertStepIndex = amount !== 0 ? 2 : 1;
     fireTxProgress({ action: "start", title: "Creating Claim", steps });
     try {
       fireTxProgress({ action: "step", stepIndex: 0 });
@@ -66,7 +73,7 @@ function CreateClaimPrompt({
             fireToast("Stake failed: " + (stakeErr?.message || "unknown"));
           }
         }
-        fireTxProgress({ action: "step", stepIndex: 2 });
+        fireTxProgress({ action: "step", stepIndex: insertStepIndex });
         if (address) await triggerReindex(result.post_id, address);
         fireTxProgress({ action: "done" });
         window.dispatchEvent(new Event("verisphere:data-changed"));
@@ -105,7 +112,7 @@ function CreateClaimPrompt({
         </span>
         <button
           onClick={handleCreate}
-          disabled={!isConnected || tooLong || amount === 0 || loading}
+          disabled={!isConnected || tooLong || loading}
           style={{
             padding: "4px 10px",
             fontSize: 11,
@@ -114,7 +121,7 @@ function CreateClaimPrompt({
             background: S.blue,
             color: "#fff",
             cursor: isConnected && !tooLong ? "pointer" : "not-allowed",
-            opacity: isConnected && !tooLong && amount !== 0 && !loading ? 1 : 0.5,
+            opacity: isConnected && !tooLong && !loading ? 1 : 0.5,
           }}
         >
           {loading
