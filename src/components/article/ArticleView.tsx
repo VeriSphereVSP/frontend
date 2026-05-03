@@ -159,7 +159,9 @@ export default function ArticleView({
     // null = blocked by duplicate check, balance check, or relay error.
     // The hook already dispatched a toast with the specific reason.
     if (result == null) {
-      fireTxProgress({ action: "error", error: "Claim was not created — duplicate or similar claim may exist" });
+      // Show the specific error from the hook (balance, relay, etc.)
+      // rather than assuming it's a duplicate issue
+      fireTxProgress({ action: "error", error: hookError || "Claim was not created" });
       setEditPhase("edit");
       return;
     }

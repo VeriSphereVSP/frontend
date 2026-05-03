@@ -72,7 +72,7 @@ function CreateClaimPrompt({
         window.dispatchEvent(new Event("verisphere:data-changed"));
         onCreated(result.post_id);
       } else {
-        fireTxProgress({ action: "error", error: "Claim was not created" });
+        fireTxProgress({ action: "error", error: error || "Claim was not created" });
       }
     } catch (e: any) {
       fireTxProgress({ action: "error", error: friendlyError(e) });

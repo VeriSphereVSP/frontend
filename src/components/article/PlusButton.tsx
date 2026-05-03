@@ -150,7 +150,7 @@ export default function PlusBtn({
     // null return = blocked by duplicate check, balance check, or relay error.
     // The hook already dispatched a toast with the specific reason.
     if (result == null) {
-      setError("Claim was not created. A duplicate or similar claim may already exist.");
+      setError(error || "Claim was not created.");
       fireTxProgress({ action: "error", error: "Claim creation blocked — duplicate or similar claim exists" });
       setPhase("input");
       return;
