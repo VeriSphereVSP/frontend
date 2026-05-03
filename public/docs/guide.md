@@ -93,10 +93,13 @@ A **claim** is a factual assertion, like "Earth is a spheroid" or "The greenhous
 
 ### Staking
 
-Every claim has two sides: **support** and **challenge**. You can only stake on **one side** of any given claim — if you want to switch sides, you must withdraw your current stake first and then stake on the other side.
+Every claim has two sides: **support** and **challenge**. You can only hold a position on **one side** of any given claim at a time — but you can switch sides in a single transaction by setting a signed target. The protocol handles the withdrawal of your old position and the opening of your new position atomically.
 
 - **Positive stake** (+1, +5, etc.) = stake in **support** (you believe the claim is true)
 - **Negative stake** (-1, -5, etc.) = stake in **challenge** (you believe the claim is false)
+- **Zero** = withdraw your entire position on this claim, regardless of which side it was on
+
+Switching sides costs only the relay fee on the single transaction; you do not pay a separate posting fee, and you do not need to wait between the withdrawal and the new stake. Note that switching sides closes your old lot entirely — you start fresh at the back of the new side's queue, with no preserved positional advantage.
 
 Your stake earns or loses value over time based on the claim's **Verity Score (VS)**.
 
@@ -174,7 +177,7 @@ Only claims with VS > 0 can influence other claims through evidence links. A dis
 A claim's influence is distributed — not duplicated — across its outgoing links. Creating more links from the same claim dilutes each link's share. The protocol caps the number of outgoing links it counts (currently 64): if a claim has more than that, only the top 64 by stake actually contribute. Spam links beyond the cap have zero effect.
 
 ### Single-Sided Positions
-You can only stake on one side of any given claim. To flip from support to challenge (or vice versa), withdraw your current stake first, then stake on the other side.
+You can only hold a position on one side of any given claim at a time. To flip from support to challenge (or vice versa), set a signed target on the opposite side — the protocol withdraws the old position and opens the new one in a single transaction. Flipping closes your old lot entirely; the new position starts at the back of the destination side's queue.
 
 ---
 
