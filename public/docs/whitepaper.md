@@ -65,9 +65,9 @@ Creating a link also requires the posting fee, which is burned.
 
 Any participant may stake VSP tokens on any post (claim or link), but only on **one side** of any given post. A user with an existing support stake on a post cannot add a challenge stake to the same post (the contract reverts with `OppositeSideStaked`); they must withdraw fully and re-enter on the other side.
 
-Each (post, side) pair holds at most **one consolidated lot per user**. A user's first stake on a side creates the lot at the back of the queue. Subsequent stakes by the same user on the same side merge into the existing lot, and the lot's effective queue position is recomputed as the stake-weighted average of the old position and the new entry position. This means later additions drag a user's weighted position toward the back of the queue, diluting the position-weight advantage of their original entry.
+Each (post, side) pair holds at most **one consolidated lot per user**. A user's first stake on a side creates the lot at the back of the queue. Subsequent stakes by the same user on the same side merge into the existing lot: the lot's `amount` grows by the additional stake, and after every queue mutation the StakeEngine recomputes every lot's `weightedPosition` as the midpoint of its share of the side total — `weightedPosition = cumBefore + amount / 2`, where `cumBefore` is the running sum of amounts of lots earlier in the array. Earlier-entered users keep their array slot, so adding more stake to an existing lot enlarges the lot in place rather than moving the user to the back of the queue.
 
-Stakes may be withdrawn at any time, in any amount up to the user's current lot balance. Withdrawals shrink the lot in place; they do not change the lot's weighted position. A `lifo` parameter exists on the `withdraw` function for ABI compatibility but is ignored.
+Stakes may be withdrawn at any time, in any amount up to the user's current lot balance. After a withdrawal, the StakeEngine recomputes every lot's `weightedPosition` from the new amounts, so a partial withdrawal slightly shifts the staker (and everyone after them in the array) toward the front of the queue. A user who withdraws fully retains their array slot with `amount = 0` (a "ghost lot"), which can be removed by a governance call to `compactLots`. A `lifo` parameter exists on the `withdraw` function for ABI compatibility but is ignored.
 
 ### 3.2 Staking Rate
 
@@ -75,7 +75,7 @@ Each lot accrues or loses value once per snapshot period (default: one day) acco
 
 1. **Truth pressure** — the verity magnitude (`|2A − T| / T`) determines the base strength of the economic force. When VS is exactly neutral (equal support and challenge), no economic effect occurs.
 2. **Post size (participation)** — the post's total stake relative to a global reference (`sMax`) scales the rate. Larger posts face greater pressure. The factor is `participation = T / sMax`.
-3. **Position weight** — each lot's weight is a continuous function of its stake-weighted position in its side queue: `positionWeight = 1 − (lot.weightedPosition / sideTotal)`. Lots with low weighted position (those near the front of the queue) earn near the full rate; lots near the back earn close to zero.
+3. **Position weight** — each lot's weight is a continuous function of its weighted position in its side queue: `positionWeight = 1 − (lot.weightedPosition / sideTotal)`. Because positions are midpoints, a sole staker on a side has `weightedPosition = amount / 2` and therefore `positionWeight = 1/2`; the first of many earlier stakers (those with small `cumBefore`) earns close to the full rate, while later additions earn proportionally less.
 4. **Governed bounds** — the annual rate is bounded between `rMin` and `rMax`, both governance-configurable. The current deployment uses 0% minimum and 100% maximum.
 
 The base per-epoch rate (in RAY units, where RAY = 1e18) is:
@@ -86,11 +86,17 @@ rBase = rMin + (rMax − rMin) × verity × participation
 
 Where `verity = |2A − T| × RAY / T` and both `rMin` and `rMax` have already been scaled from annual to per-epoch by the elapsed time (`× EPOCH_LENGTH × epochsElapsed / YEAR_LENGTH`).
 
-A budget is then computed for each side of the post: `budget = sideTotal × rBase / RAY`. The budget is distributed across lots in proportion to `(lot.amount × positionWeight)`. For a lot on the side aligned with the VS sign, value accrues (VSP is minted to the StakeEngine and added to the lot). For a lot on the opposing side, value is burned (VSP is destroyed and subtracted from the lot, never below zero).
+Each lot's per-epoch change is then computed independently — there is no side-wide budget redistribution. For each lot:
+
+```
+delta = lot.amount × rBase × positionWeight / RAY
+```
+
+For a lot on the side aligned with the VS sign, `delta` accrues (VSP is minted to the StakeEngine and added to the lot). For a lot on the opposing side, `delta` is burned (VSP is destroyed and subtracted from the lot, capped so the lot never goes below zero). Because `positionWeight ∈ [0, 1]`, an individual lot's effective rate never exceeds `rBase`; a sole staker on a side earns `rBase / 2`.
 
 **Position rescale.** After each snapshot's epoch math completes, the StakeEngine rescales all lots' `weightedPosition` values so that the maximum position is strictly less than `sideTotal`. This prevents the edge case where earlier stakers withdraw and shrink `sideTotal` below later stakers' positions, which would otherwise clamp those lots' `positionWeight` to zero indefinitely. The rescale preserves the relative ordering of all lots.
 
-The global reference `sMax` decays at 0.5% per epoch (one day) when the leading post's total stake falls below the previous `sMax`, capped at 3,650 epochs of compounded decay per refresh. This ensures that historical peaks do not permanently suppress rates on future posts.
+The global reference `sMax` is maintained by a top-3 post tracker: every stake or withdrawal updates this tracker and snaps `sMax` to the leader's total. As a result, during normal operation `sMax` always equals the largest active post's total stake — there is no slow decay to remove. A fallback exponential decay (configurable; currently 10% per epoch capped at 30 epochs) only runs in the corner case where the protocol has zero active posts, so a stale `sMax` cannot stay frozen forever after a complete unwind.
 
 For the full normative specification, see `claim-spec-evm-abi.md`, Appendix A.
 
@@ -175,7 +181,7 @@ if isChallenge: contribution = -contribution
 
 A positive contribution adds to the child's support side. A negative contribution adds to the child's challenge side.
 
-**Bounded fan-in.** For gas safety, the ScoreEngine processes at most `maxIncomingEdges` incoming links per claim and sums at most `maxOutgoingLinks` outgoing links per parent during the share computation. Both limits default to 64 and are governance-configurable. Edges beyond these limits are silently skipped in insertion order, so claims with very high fan-in may have a slightly truncated effective VS. Off-chain indexers that recompute scores should apply the same caps to match on-chain behavior.
+**Bounded fan-in.** For gas safety, the ScoreEngine processes at most `maxIncomingEdges` incoming links per claim and sums at most `maxOutgoingLinks` outgoing links per parent during the share computation. Both limits default to 64 and are governance-configurable. When a claim or parent exceeds its limit, the relevant edges are sorted by link stake descending — with ties broken deterministically by link postId ascending (older link wins) — and only the top-N participate. Lower-staked edges beyond the cap are inert: they neither contribute to the parent's denominator nor produce a numerator. This preserves conservation of influence (§4.4) under bounded fan-out: a parent's mass is fully and exclusively distributed across its top-N outgoing links. Off-chain indexers that recompute scores should apply the same sort-and-cap rule with the same tiebreak to match on-chain behavior.
 
 #### 4.2.3 Effective VS Computation
 
@@ -222,10 +228,15 @@ Combined with the credibility gate (Section 4.2.1), cycles are further stabilize
 
 A claim's economic mass is finite and is distributed — not duplicated — across its outgoing links. If a parent has mass M and three outgoing links with equal stake, each receives M/3. Adding more outgoing links from the same parent dilutes each link's share.
 
+Under bounded fan-out (§4.2.2), this rule is enforced strictly: only the parent's top-`maxOutgoingLinks` outgoing links by stake participate in the distribution. Links beyond the cap are inert — they contribute zero to the target's effective VS and do not appear in the parent's denominator. Two consequences follow:
+
+- The sum of `linkShare` across all of a parent's outgoing links is always ≤ 1.0, even when the parent has more outgoing links than the cap.
+- Link spam past the cap is fully self-defeating: a low-stake "spam" link that fails to displace one of the top-N has zero influence. The attacker has burned their posting fee and locked stake for no effect.
+
 This ensures:
 - A single claim cannot amplify influence beyond its own stake-weighted credibility.
-- The cost of meaningful influence scales with the stake required to maintain both the parent claim and the link.
-- Link spam is self-defeating: each additional link dilutes the attacker's influence per target.
+- The cost of meaningful influence scales with the stake required to maintain both the parent claim and the link, *and* to keep the link competitive against other outgoing links.
+- Link spam is self-defeating: each additional link either dilutes the attacker's influence per target (within the cap) or contributes nothing (beyond the cap).
 
 ---
 

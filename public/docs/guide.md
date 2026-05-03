@@ -68,7 +68,7 @@ If you already have USDC on Ethereum:
 3. MetaMask will pop up asking you to connect — approve it.
 4. You should see your wallet address and USDC balance in the header bar.
 
-You don't need AVAX for gas — Verisphere pays all transaction fees for you.
+You don't need AVAX for gas — Verisphere submits transactions for you through a relay. The relay deducts a small fee in VSP from each transaction (currently up to 0.5% of transaction value, with a small minimum). Plain VSP transfers and reads are not subject to the relay fee.
 
 ### 5. Buy VSP Tokens
 
@@ -152,7 +152,7 @@ Your earning rate depends on four factors:
 
 1. **Truth Pressure** — How strong the VS is. A VS of 100% means maximum earning pressure. VS of 0% means no earnings.
 2. **Post Size** — Larger total stakes face stronger pressure. Your claim's total stake relative to the system-wide reference (`sMax`).
-3. **Queue Position** — Earlier stakers earn more. Your position weight is based on where you entered the queue: `positionWeight = 1 − (yourPosition / sideTotal)`. The very first staker gets the full rate; later entries earn progressively less.
+3. **Queue Position** — Earlier stakers earn more. Your position weight is based on where you entered the queue: `positionWeight = 1 − (yourPosition / sideTotal)`, where `yourPosition` is the midpoint of your share of the side total. A sole staker on a side earns at half the base rate; the first of many earlier stakers approaches the full rate; later entries earn progressively less. An individual lot's effective rate never exceeds the base rate.
 4. **Rate Bounds** — Earning rates scale from 0% (at VS = 0) up to a maximum of 100% APR.
 
 Winners (your side aligns with the VS direction) earn at this rate. Losers (opposing side) lose at this rate.
@@ -171,7 +171,7 @@ A claim needs at least 1 VSP total stake to be "active" and influence other clai
 Only claims with VS > 0 can influence other claims through evidence links. A discredited claim (VS ≤ 0) is inert in the evidence graph until rehabilitated.
 
 ### Conservation of Influence
-A claim's influence is distributed — not duplicated — across its outgoing links. Creating more links from the same claim dilutes each link's share.
+A claim's influence is distributed — not duplicated — across its outgoing links. Creating more links from the same claim dilutes each link's share. The protocol caps the number of outgoing links it counts (currently 64): if a claim has more than that, only the top 64 by stake actually contribute. Spam links beyond the cap have zero effect.
 
 ### Single-Sided Positions
 You can only stake on one side of any given claim. To flip from support to challenge (or vice versa), withdraw your current stake first, then stake on the other side.
