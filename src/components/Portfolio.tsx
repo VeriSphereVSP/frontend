@@ -360,7 +360,17 @@ export default function Portfolio({ onBack }: PortfolioProps) {
                         <span style={{ color: p.is_challenge ? S.red : S.green, fontWeight: 500 }}>
                           {p.is_challenge ? "Challenge: " : "Support: "}
                         </span>
-                        "{p.from_text}" {p.is_challenge ? "challenges" : "supports"} "{p.to_text}"
+                        <span
+                          style={{ cursor: "pointer", borderBottom: `1px dotted ${S.textFaint}` }}
+                          onClick={(ev) => { ev.stopPropagation(); if (p.from_post_id != null) goToClaims(p.from_post_id); }}
+                          title="Go to source claim"
+                        >"{p.from_text}"</span>{" "}
+                        <span style={{ color: S.textFaint }}>{p.is_challenge ? "challenges" : "supports"}</span>{" "}
+                        <span
+                          style={{ cursor: "pointer", borderBottom: `1px dotted ${S.textFaint}` }}
+                          onClick={(ev) => { ev.stopPropagation(); if (p.to_post_id != null) goToClaims(p.to_post_id); }}
+                          title="Go to target claim"
+                        >"{p.to_text}"</span>
                       </>
                     ) : p.text}
                   </div>

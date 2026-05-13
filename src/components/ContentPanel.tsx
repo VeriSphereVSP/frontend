@@ -75,9 +75,14 @@ export default function ContentPanel({ topic }: { topic: string }) {
   if (error) return <div className="card error">{error}</div>;
   if (!article) return null;
 
+  // Show a loading banner whenever a fetch is in flight and an
+  // article is already on screen (topic-switch case). The first-load
+  // case is handled by the early return above.
+  const showStaleBanner = loading && !!article;
+
   return (
     <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
-      {regenerating && (
+      {(regenerating || showStaleBanner) && (
         <div
           style={{
             padding: "10px 20px",
@@ -104,11 +109,23 @@ export default function ContentPanel({ topic }: { topic: string }) {
             }}
           />
           <span>
-            <strong>Updating article</strong> — refreshing with latest data…
+            {showStaleBanner ? (
+              <><strong>Loading article</strong> — fetching "{topic}"…</>
+            ) : (
+              <><strong>Updating article</strong> — refreshing with latest data…</>
+            )}
           </span>
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          opacity: showStaleBanner ? 0.4 : 1,
+          transition: "opacity 0.15s ease-in-out",
+          pointerEvents: showStaleBanner ? "none" : "auto",
+        }}
+      >
         <ArticleView article={article} onRefresh={fetchArticle} />
       </div>
     </div>
